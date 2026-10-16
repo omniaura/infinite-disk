@@ -75,6 +75,14 @@ func TestOwnedServiceLifecycleAndCrontabFailures(t *testing.T) {
 		t.Fatal(err)
 	}
 	exists(t, config)
+	if _, err := InstallService(context.Background(), f.e.Config, config, "darwin", false); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(fakebin, "launchctl"), "#!/bin/sh\nif [ \"$1\" = print ]; then exit 0; fi\nexit 42\n")
+	if UninstallService(context.Background(), "darwin") == nil {
+		t.Fatal("failed stop reported as successful uninstall")
+	}
+	exists(t, service)
 	write(t, service, "unrelated service")
 	if _, err := InstallService(context.Background(), f.e.Config, config, "darwin", false); err == nil {
 		t.Fatal("unrelated service overwritten")

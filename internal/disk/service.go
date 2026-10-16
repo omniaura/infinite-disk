@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const ServiceName = "dev.omniaura.infinite-disk"
@@ -75,11 +76,35 @@ func serviceFile(platform string) (string, error) {
 }
 
 func runServiceCommand(ctx context.Context, name string, args ...string) error {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
 	if err := cmd.Run(); err != nil {
 		return errors.New("native service operation failed; inspect service status")
 	}
 	return nil
+}
+
+func stopOwnedService(ctx context.Context, platform, file string) error {
+	if platform == "linux" {
+		return runServiceCommand(ctx, "systemctl", "--user", "disable", "--now", "infinite-disk.service")
+	}
+	if platform != "darwin" {
+		return errors.New("unsupported service platform")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	target := "gui/" + strconv.Itoa(os.Getuid()) + "/" + ServiceName
+	check := exec.CommandContext(ctx, "launchctl", "print", target)
+	stderr := &cappedBuffer{limit: 64 << 10}
+	check.Stderr = stderr
+	if err := check.Run(); err != nil {
+		if ctx.Err() == nil && !stderr.overflow && strings.Contains(stderr.String(), "Could not find service") {
+			return nil
+		}
+		return errors.New("cannot verify native service state; owned service file retained")
+	}
+	return runServiceCommand(ctx, "launchctl", "bootout", target)
 }
 
 func copyExecutable(source, destination string) error {
@@ -230,9 +255,12 @@ func UninstallService(ctx context.Context, platform string) error {
 	}
 	switch platform {
 	case "darwin":
-		_ = runServiceCommand(ctx, "launchctl", "bootout", "gui/"+strconv.Itoa(os.Getuid()), file)
+		err = stopOwnedService(ctx, platform, file)
 	case "linux":
-		_ = runServiceCommand(ctx, "systemctl", "--user", "disable", "--now", "infinite-disk.service")
+		err = stopOwnedService(ctx, platform, file)
+	}
+	if err != nil {
+		return err
 	}
 	if err = os.Remove(file); err != nil {
 		return err

@@ -162,6 +162,32 @@ func TestStateNeverClaimsOrChangesUnownedDirectory(t *testing.T) {
 	exists(t, filepath.Join(foreign, "keep.txt"))
 }
 
+func TestPartialOrWarnedActivityInventoryFailsClosed(t *testing.T) {
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake := filepath.Join(base, "lsof")
+	t.Setenv("PATH", base+string(os.PathListSeparator)+os.Getenv("PATH"))
+	for _, kind := range []string{"partial", "warning", "success"} {
+		script := "#!/bin/sh\nprintf 'n/tmp/infinite-disk-fixture\\n'\n"
+		if kind == "partial" {
+			script += "exit 1\n"
+		}
+		if kind == "warning" {
+			script += "printf 'fixture warning\\n' >&2\n"
+		}
+		write(t, fake, script)
+		if err = os.Chmod(fake, 0700); err != nil {
+			t.Fatal(err)
+		}
+		a := ReadActivity(context.Background())
+		if a.Known != (kind == "success") {
+			t.Fatalf("activity trust mismatch for %s", kind)
+		}
+	}
+}
+
 func TestRestoreRefusesTamperedBundle(t *testing.T) {
 	f := newFixture(t)
 	p := plan(t, f)

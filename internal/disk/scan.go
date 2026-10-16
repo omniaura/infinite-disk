@@ -37,16 +37,12 @@ func ReadActivity(ctx context.Context) Activity {
 	cmd := exec.CommandContext(ctx, "lsof", "-nP", "-u", strconv.Itoa(os.Getuid()), "-Fn")
 	output := &cappedBuffer{limit: 16 << 20}
 	cmd.Stdout = output
+	warnings := &cappedBuffer{limit: 64 << 10}
+	cmd.Stderr = warnings
 	err := cmd.Run()
 	b := output.Bytes()
-	if err != nil {
-		var exit *exec.ExitError
-		if !errors.As(err, &exit) || exit.ExitCode() != 1 {
-			return Activity{}
-		}
-	}
 	// Output truncation cannot be treated as a known activity inventory.
-	if output.overflow {
+	if err != nil || ctx.Err() != nil || output.overflow || warnings.Len() > 0 || warnings.overflow {
 		return Activity{}
 	}
 	var paths []string
