@@ -31,6 +31,7 @@ jobs:
               mkdir -p "dist/$name"
               GOOS="$platform" GOARCH="$arch" CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$RELEASE_TAG" -o "dist/$name/infinite-disk" ./cmd/infinite-disk
               cp LICENSE README.md THIRD_PARTY_NOTICES.md "dist/$name/"
+              cp -R licenses "dist/$name/licenses"
               tar -czf "dist/$name.tar.gz" -C dist "$name"
             done
           done

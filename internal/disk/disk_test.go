@@ -219,6 +219,12 @@ func TestApprovalAndRevalidation(t *testing.T) {
 func TestPreserveRemoveAndIndependentRestore(t *testing.T) {
 	f := newFixture(t)
 	runGit(t, f.repo, "branch", "unpublished")
+	write(t, filepath.Join(f.repo, "source.txt"), "stashed work\n")
+	runGit(t, f.repo, "stash", "push", "-m", "fixture stash")
+	old(t, filepath.Join(f.repo, "source.txt"))
+	stash := runGit(t, f.repo, "rev-parse", "refs/stash")
+	runGit(t, f.repo, "notes", "add", "-m", "fixture note")
+	notes := runGit(t, f.repo, "rev-parse", "refs/notes/commits")
 	write(t, filepath.Join(f.repo, "new.txt"), "unfinished work\n")
 	old(t, filepath.Join(f.repo, "new.txt"))
 	p := plan(t, f)
@@ -249,6 +255,9 @@ func TestPreserveRemoveAndIndependentRestore(t *testing.T) {
 	}
 	if !strings.Contains(runGit(t, restore, "branch", "-a"), "unpublished") {
 		t.Fatal("unpublished ref lost")
+	}
+	if runGit(t, restore, "rev-parse", "refs/stash") != stash || runGit(t, restore, "rev-parse", "refs/notes/commits") != notes {
+		t.Fatal("stash or notes ref not restored")
 	}
 	for _, path := range []string{r.BundlePath, filepath.Join(f.e.Config.StateDir, "receipts", p.ID+"-"+p.Candidates[0].ID+".json")} {
 		s, err := os.Stat(path)

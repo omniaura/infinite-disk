@@ -24,7 +24,10 @@ func xmlText(s string) string {
 	return b.String()
 }
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'" }
-func unitQuote(s string) string  { return strconv.Quote(strings.ReplaceAll(s, "%", "%%")) }
+func unitQuote(s string) string {
+	return strconv.Quote(strings.NewReplacer("%", "%%", "$", "$$").Replace(s))
+}
+func cronQuote(s string) string { return strings.ReplaceAll(shellQuote(s), "%", "\\%") }
 
 func ServiceContent(platform, binary, config, state string) (string, error) {
 	for _, p := range []string{binary, config, state} {
@@ -51,7 +54,7 @@ func ServiceContent(platform, binary, config, state string) (string, error) {
 		}
 		return fmt.Sprintf("# %s\n[Unit]\nDescription=Infinite Disk report-only disk watcher\n[Service]\nType=simple\nExecStart=%s\nRestart=on-failure\nRestartSec=60\nNice=10\nUMask=0077\nNoNewPrivileges=yes\nPrivateTmp=yes\n[Install]\nWantedBy=default.target\n", serviceMarker, strings.Join(q, " ")), nil
 	case "cron":
-		return fmt.Sprintf("# BEGIN %s\n*/5 * * * * %s --config %s watch --once >/dev/null 2>&1\n# END %s\n", serviceMarker, shellQuote(binary), shellQuote(config), serviceMarker), nil
+		return fmt.Sprintf("# BEGIN %s\n*/5 * * * * %s --config %s watch --once >/dev/null 2>&1\n# END %s\n", serviceMarker, cronQuote(binary), cronQuote(config), serviceMarker), nil
 	default:
 		return "", errors.New("native monitoring supports macOS launchd, Linux systemd, or explicit cron")
 	}

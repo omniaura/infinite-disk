@@ -14,7 +14,7 @@ for(const [location,entry] of Object.entries(lock.packages)){
  records.push(`${pkg.name}@${pkg.version} | ${typeof pkg.license==="string"?pkg.license:JSON.stringify(pkg.license??"See upstream license")} | ${typeof pkg.repository==="string"?pkg.repository:pkg.repository?.url??"https://www.npmjs.com/package/"+pkg.name}`);
 }
 const unique=[...new Set(records)].sort();
-const body="# Third-party notices\n\nInfinite Disk is MIT licensed. The optional Pi worker installs the following locked dependencies without lifecycle scripts. Their upstream licenses and copyright notices are distributed in the installed packages and remain applicable. Go dependencies: Cobra and pflag (Apache-2.0), mousetrap (Apache-2.0).\n\nPlatform-optional dependencies may be listed only when installed on the generating host; the lockfile is the complete dependency inventory.\n\n```text\n"+unique.join("\n")+"\n```\n";
+const body="# Third-party notices\n\nInfinite Disk is MIT licensed. The optional Pi worker installs the following locked dependencies without lifecycle scripts. Their upstream licenses and copyright notices are distributed in the installed packages and remain applicable. Statically linked Go components: Cobra (Apache-2.0), pflag (BSD-3-Clause), mousetrap (Apache-2.0), and the Go runtime (BSD-3-Clause). Full license texts are in licenses/.\n\nPlatform-optional dependencies may be listed only when installed on the generating host; the lockfile is the complete dependency inventory.\n\n```text\n"+unique.join("\n")+"\n```\n";
 const target=path.join(root,"THIRD_PARTY_NOTICES.md");
 if(process.argv.includes("--check")){
  // Cross-platform optional packages differ. Validate every installed required

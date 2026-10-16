@@ -36,6 +36,7 @@ type Candidate struct {
 	Branch       string     `json:"branch,omitempty"`
 	CommonDir    string     `json:"common_dir,omitempty"`
 	RemoteHost   string     `json:"remote_host,omitempty"`
+	RemoteDigest string     `json:"remote_digest,omitempty"`
 	SizeBytes    uint64     `json:"size_bytes"`
 	SizeComplete bool       `json:"size_complete"`
 	LastModified time.Time  `json:"last_modified"`

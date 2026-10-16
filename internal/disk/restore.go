@@ -75,6 +75,12 @@ func (e *Engine) Restore(ctx context.Context, plan, project, destination string)
 	if _, err = gitCommand(ctx, destination, nil, "checkout", "--detach", r.RecoveryCommit); err != nil {
 		return errors.New("restore checkout failed; restored Git data was retained")
 	}
+	// clone's default refspec does not restore stash/notes/custom refs. The
+	// destination is newly created and detached, so restore every bundled ref
+	// there (including remote-tracking refs that differ from clone's defaults).
+	if _, err = gitInput(ctx, destination, nil, nil, "-c", "fetch.fsckObjects=true", "fetch", "--force", "--no-tags", "--", r.BundlePath, "refs/*:refs/*"); err != nil {
+		return errors.New("full ref restore failed; restored Git data was retained")
+	}
 	// Keep origin pointed at the offline bundle. Reconnecting to a network remote
 	// is explicit, avoiding untrusted receipt values becoming command options.
 	return AppendEvent(e.Config, Event{Type: "project_restored", PlanID: plan, CandidateID: project, Outcome: "verified_bundle"})

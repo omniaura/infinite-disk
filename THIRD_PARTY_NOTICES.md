@@ -1,6 +1,6 @@
 # Third-party notices
 
-Infinite Disk is MIT licensed. The optional Pi worker installs the following locked dependencies without lifecycle scripts. Their upstream licenses and copyright notices are distributed in the installed packages and remain applicable. Go dependencies: Cobra and pflag (Apache-2.0), mousetrap (Apache-2.0).
+Infinite Disk is MIT licensed. The optional Pi worker installs the following locked dependencies without lifecycle scripts. Their upstream licenses and copyright notices are distributed in the installed packages and remain applicable. Statically linked Go components: Cobra (Apache-2.0), pflag (BSD-3-Clause), mousetrap (Apache-2.0), and the Go runtime (BSD-3-Clause). Full license texts are in licenses/.
 
 Platform-optional dependencies may be listed only when installed on the generating host; the lockfile is the complete dependency inventory.
 

@@ -18,11 +18,13 @@ import (
 
 type cappedBuffer struct {
 	bytes.Buffer
-	limit int
+	limit    int
+	overflow bool
 }
 
 func (b *cappedBuffer) Write(p []byte) (int, error) {
 	if b.Len()+len(p) > b.limit {
+		b.overflow = true
 		return 0, errors.New("command output exceeded safety limit")
 	}
 	return b.Buffer.Write(p)
@@ -147,6 +149,22 @@ func fingerprint(ctx context.Context, path string) (string, []string, int, time.
 	h := sha256.New()
 	h.Write([]byte(head))
 	h.Write(status)
+	refs, err := gitCommand(ctx, path, nil, "for-each-ref", "--format=%(refname) %(objectname)")
+	if err != nil {
+		return "", nil, 0, time.Time{}, err
+	}
+	for _, line := range bytes.Split(refs, []byte{'\n'}) {
+		if bytes.HasPrefix(line, []byte("refs/infinite-disk/recovery/")) || bytes.HasPrefix(line, []byte("refs/remotes/origin/infinite-disk/recovery/")) {
+			continue
+		}
+		h.Write(line)
+		h.Write([]byte{0})
+	}
+	localConfig, err := gitCommand(ctx, path, nil, "config", "--local", "--null", "--list")
+	if err != nil {
+		return "", nil, 0, time.Time{}, err
+	}
+	h.Write(localConfig)
 	diff, e := gitCommand(ctx, path, nil, "diff", "--no-ext-diff", "--no-textconv", "--binary", "HEAD", "--")
 	if e != nil {
 		return "", nil, 0, time.Time{}, e

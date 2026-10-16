@@ -36,6 +36,9 @@ func (e *Engine) preserve(ctx context.Context, c Candidate, planID string, r *Re
 	if err != nil {
 		return err
 	}
+	if PlanDigest([]byte(remote)) != c.RemoteDigest {
+		return errors.New("origin identity changed")
+	}
 	if host, err := remoteHost(remote); err != nil || host != c.RemoteHost {
 		if !(e.allowLocalRemote && filepath.IsAbs(remote) && c.RemoteHost == "local-fixture") {
 			return errors.New("origin remote changed")
@@ -108,10 +111,10 @@ func (e *Engine) preserve(ctx context.Context, c Candidate, planID string, r *Re
 		return err
 	}
 	ref := fmt.Sprintf("refs/heads/infinite-disk/recovery/%s-%s", c.ID, planID[:12])
-	if _, err = gitInput(ctx, c.Path, nil, nil, "push", "--no-verify", "origin", commit+":"+ref); err != nil {
+	if _, err = gitInput(ctx, c.Path, nil, nil, "push", "--no-verify", "--", remote, commit+":"+ref); err != nil {
 		return err
 	}
-	remoteState, err := gitInput(ctx, c.Path, nil, nil, "ls-remote", "--refs", "origin", ref)
+	remoteState, err := gitInput(ctx, c.Path, nil, nil, "ls-remote", "--refs", "--", remote, ref)
 	if err != nil {
 		return err
 	}
@@ -158,6 +161,18 @@ func (e *Engine) preserve(ctx context.Context, c Candidate, planID string, r *Re
 		if _, err = gitInput(ctx, verify, nil, nil, "bundle", "verify", bundle); err != nil {
 			return errors.New("recovery bundle is not independently restorable")
 		}
+		// Header/prerequisite verification alone does not unpack the payload.
+		// Restore every ref into this fresh bare repository and validate objects.
+		if _, err = gitInput(ctx, verify, nil, nil, "-c", "fetch.fsckObjects=true", "fetch", "--no-tags", "--", bundle, "refs/*:refs/*"); err != nil {
+			return errors.New("independent bundle restore failed")
+		}
+		if _, err = gitInput(ctx, verify, nil, nil, "fsck", "--full", "--no-reflogs", "--no-dangling"); err != nil {
+			return errors.New("bundle object integrity verification failed")
+		}
+		verifiedCommit, verifyErr := gitText(ctx, verify, "rev-parse", localRef)
+		if verifyErr != nil || verifiedCommit != commit {
+			return errors.New("bundle recovery commit verification failed")
+		}
 		sha, err := digestFile(bundle)
 		if err != nil {
 			return err
@@ -202,7 +217,7 @@ func (e *Engine) Apply(ctx context.Context, plan Plan, candidateID, approvedPlan
 	}
 	defer release()
 	fresh := e.Inspect(ctx, candidate.Path, e.Activity(ctx))
-	if !fresh.Eligible || fresh.Fingerprint != candidate.Fingerprint || fresh.Head != candidate.Head || fresh.CommonDir != candidate.CommonDir || fresh.Kind != candidate.Kind {
+	if !fresh.Eligible || fresh.Fingerprint != candidate.Fingerprint || fresh.Head != candidate.Head || fresh.RemoteDigest != candidate.RemoteDigest || fresh.CommonDir != candidate.CommonDir || fresh.Kind != candidate.Kind {
 		return r, errors.New("project changed, became active, or no longer passes safety checks")
 	}
 	r = Receipt{Version: ProtocolVersion, PlanID: plan.ID, CandidateID: candidate.ID, Path: candidate.Path, ApprovedAt: e.Now().UTC(), Result: "approved", Steps: []Evidence{{"approval", "received", "Explicit per-project approval of an immutable plan"}}}

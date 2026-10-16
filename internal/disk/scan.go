@@ -34,12 +34,19 @@ func ReadActivity(ctx context.Context) Activity {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "lsof", "-nP", "-u", strconv.Itoa(os.Getuid()), "-Fn")
-	b, err := cmd.Output()
+	output := &cappedBuffer{limit: 16 << 20}
+	cmd.Stdout = output
+	err := cmd.Run()
+	b := output.Bytes()
 	if err != nil {
 		var exit *exec.ExitError
 		if !errors.As(err, &exit) || exit.ExitCode() != 1 {
 			return Activity{}
 		}
+	}
+	// Output truncation cannot be treated as a known activity inventory.
+	if output.overflow {
+		return Activity{}
 	}
 	var paths []string
 	for _, line := range strings.Split(string(b), "\n") {
@@ -103,6 +110,8 @@ func (e *Engine) Inspect(ctx context.Context, path string, activity Activity) Ca
 	c := Candidate{ID: pathID(path), Path: path, Name: filepath.Base(path), Kind: "clone", Eligible: true, Blockers: []string{}, Evidence: []Evidence{}}
 	if err := e.safeTarget(path); err != nil {
 		block(&c, err.Error())
+		c.Evidence = append(c.Evidence, Evidence{"scope", "blocked", "Protected or unsupported target; source inspection skipped"})
+		return measureCandidate(ctx, c)
 	}
 	if !activity.Known {
 		block(&c, "activity_check_unavailable")
@@ -110,10 +119,14 @@ func (e *Engine) Inspect(ctx context.Context, path string, activity Activity) Ca
 		block(&c, "project_in_use")
 	}
 	c.Evidence = append(c.Evidence, Evidence{"activity", "checked", "Current user open files and working directories"})
+	if !c.Eligible {
+		c.Evidence[0].Outcome = "blocked"
+		return measureCandidate(ctx, c)
+	}
 	head, err := gitText(ctx, path, "rev-parse", "HEAD")
 	if err != nil {
 		block(&c, "unreadable_git_repository")
-		return c
+		return measureCandidate(ctx, c)
 	}
 	c.Head = head
 	c.Branch, _ = gitText(ctx, path, "symbolic-ref", "--quiet", "--short", "HEAD")
@@ -132,6 +145,23 @@ func (e *Engine) Inspect(ctx context.Context, path string, activity Activity) Ca
 	if info, err := os.Lstat(filepath.Join(path, ".gitmodules")); err == nil && info.Mode().IsRegular() {
 		block(&c, "submodules_require_manual_preservation")
 	}
+	indexEntries, indexErr := gitCommand(ctx, path, nil, "ls-files", "--stage", "-z")
+	if indexErr != nil {
+		block(&c, "index_state_unknown")
+	} else {
+		for _, entry := range bytes.Split(indexEntries, []byte{0}) {
+			metadata, _, _ := strings.Cut(string(entry), "\t")
+			fields := strings.Fields(metadata)
+			if len(fields) == 3 {
+				if fields[0] == "160000" {
+					block(&c, "submodules_require_manual_preservation")
+				}
+				if fields[2] != "0" {
+					block(&c, "unmerged_index_requires_manual_preservation")
+				}
+			}
+		}
+	}
 	if _, err := gitText(ctx, path, "config", "--local", "--name-only", "--get-regexp", `^(core\.sshcommand|credential\.|filter\.|include(if)?\.)`); err == nil {
 		block(&c, "repository_execution_or_credential_overrides")
 	}
@@ -143,33 +173,6 @@ func (e *Engine) Inspect(ctx context.Context, path string, activity Activity) Ca
 			block(&c, "special_or_locked_git_storage_requires_manual_preservation")
 		}
 	}
-	// Subdirectories, including ignored dependency caches, must not hide a second
-	// repository. Bound this traversal and fail closed if it cannot finish.
-	count := 0
-	errNested := filepath.WalkDir(path, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		count++
-		if count > 250000 || ctx.Err() != nil {
-			return errors.New("nested repository inspection budget exceeded")
-		}
-		if p == path {
-			return nil
-		}
-		if d.Name() == ".git" {
-			if filepath.Dir(p) != path {
-				return errors.New("nested Git repository")
-			}
-			if d.IsDir() {
-				return filepath.SkipDir
-			}
-		}
-		return nil
-	})
-	if errNested != nil {
-		block(&c, "nested_repository_or_uninspectable_tree")
-	}
 	remote, err := gitText(ctx, path, "remote", "get-url", "origin")
 	if err != nil {
 		block(&c, "no_origin_remote")
@@ -180,9 +183,45 @@ func (e *Engine) Inspect(ctx context.Context, path string, activity Activity) Ca
 			err = nil
 		}
 		c.RemoteHost = host
+		c.RemoteDigest = PlanDigest([]byte(remote))
 		if err != nil || (!e.allowLocalRemote && !slices.Contains(e.Config.AllowedRemoteHosts, host)) {
 			block(&c, "unapproved_or_credential_bearing_remote")
 		}
+		pushURL, pushErr := gitText(ctx, path, "remote", "get-url", "--push", "--all", "origin")
+		fetchURLs, fetchErr := gitText(ctx, path, "remote", "get-url", "--all", "origin")
+		if pushErr != nil || fetchErr != nil || pushURL != remote || fetchURLs != remote {
+			block(&c, "ambiguous_or_different_push_remote")
+		}
+	}
+	// An already-blocked project needs a size estimate, not an expensive source
+	// fingerprint. No later stage can promote it or approve it.
+	if !c.Eligible {
+		c.Evidence = append(c.Evidence, Evidence{"private_state_and_git", "blocked", "Source fingerprint skipped after mechanical blockers"})
+		return measureCandidate(ctx, c)
+	}
+	// Even ignored dependency caches must not hide another repository.
+	count := 0
+	errNested := filepath.WalkDir(path, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		count++
+		if count > 250000 || ctx.Err() != nil {
+			return errors.New("nested inspection budget exceeded")
+		}
+		if p != path && d.Name() == ".git" {
+			if filepath.Dir(p) != path {
+				return errors.New("nested repository")
+			}
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+		}
+		return nil
+	})
+	if errNested != nil {
+		block(&c, "nested_repository_or_uninspectable_tree")
+		return measureCandidate(ctx, c)
 	}
 	ignored, err := gitCommand(ctx, path, nil, "ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "--no-empty-directory", "-z")
 	if err != nil {
@@ -213,9 +252,13 @@ func (e *Engine) Inspect(ctx context.Context, path string, activity Activity) Ca
 		block(&c, "staged_and_unstaged_versions_require_manual_preservation")
 	}
 	c.Evidence = append(c.Evidence, Evidence{"git_source", "checked", fmt.Sprintf("HEAD %s; %d changed files", head, dirty)}, Evidence{"private_state", "checked", "Unknown ignored files and sensitive changed content block removal"})
+	return measureCandidate(ctx, c)
+}
+
+func measureCandidate(ctx context.Context, c Candidate) Candidate {
 	ctxSize, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	output, err := exec.CommandContext(ctxSize, "du", "-sk", path).Output()
+	output, err := exec.CommandContext(ctxSize, "du", "-sk", c.Path).Output()
 	if err == nil {
 		fields := strings.Fields(string(output))
 		if len(fields) > 0 {
@@ -284,6 +327,15 @@ func (e *Engine) Scan(ctx context.Context) (Plan, error) {
 			break
 		}
 	}
+	slices.SortStableFunc(p.Candidates, func(a, b Candidate) int {
+		if a.SizeBytes > b.SizeBytes {
+			return -1
+		}
+		if a.SizeBytes < b.SizeBytes {
+			return 1
+		}
+		return strings.Compare(a.ID, b.ID)
+	})
 	p.ID = planID(p)
 	return p, nil
 }

@@ -17,6 +17,7 @@ type WatchState struct {
 	LastTriage time.Time `json:"last_triage,omitempty"`
 	LastPlanID string    `json:"last_plan_id,omitempty"`
 	Pressure   bool      `json:"pressure"`
+	Auditing   bool      `json:"auditing"`
 	Space      Space     `json:"space"`
 	Warning    string    `json:"warning,omitempty"`
 }
@@ -58,6 +59,14 @@ func (e *Engine) Tick(ctx context.Context) (WatchState, error) {
 	due := s.LastAudit.IsZero() || now.Sub(s.LastAudit) >= time.Duration(e.Config.PeriodicHours)*time.Hour ||
 		(s.Pressure && now.Sub(s.LastAudit) >= time.Duration(e.Config.AuditMinutes)*time.Minute)
 	if due {
+		s.Auditing = true
+		progress, marshalErr := json.MarshalIndent(s, "", "  ")
+		if marshalErr != nil {
+			return s, marshalErr
+		}
+		if err := atomicPrivate(filepath.Join(e.Config.StateDir, "watch.json"), progress); err != nil {
+			return s, err
+		}
 		p, err := e.RunReport(ctx)
 		if err != nil {
 			s.Warning = "Audit could not complete; no projects changed"
@@ -76,6 +85,7 @@ func (e *Engine) Tick(ctx context.Context) (WatchState, error) {
 			}
 		}
 	}
+	s.Auditing = false
 	b, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return s, err
