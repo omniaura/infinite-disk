@@ -114,9 +114,18 @@ func New(version string) *cobra.Command {
 			approved := approval == p.ID
 			if !approved {
 				fmt.Fprintf(cmd.ErrOrStderr(), "\nProject %s: %s (%.2f GiB)\n", c.ID, c.Path, float64(c.SizeBytes)/(1<<30))
+				fmt.Fprintf(cmd.ErrOrStderr(), "Changed source will be pushed to the existing origin on %s. Recovery excludes ignored dependency caches, local Git settings, and unreachable-only objects.\n", c.RemoteHost)
 				if reviewDetails {
 					for _, v := range c.Evidence {
 						fmt.Fprintf(cmd.ErrOrStderr(), "  %s: %s — %s\n", v.Check, v.Outcome, v.Detail)
+					}
+					for _, recommendation := range p.Recommendations {
+						if recommendation.CandidateID == c.ID {
+							fmt.Fprintf(cmd.ErrOrStderr(), "  Pi advisory: %s — %s\n", recommendation.Decision, recommendation.Reason)
+							for _, step := range recommendation.ProposedSteps {
+								fmt.Fprintf(cmd.ErrOrStderr(), "    Proposed, not performed: %s\n", step)
+							}
+						}
 					}
 				}
 				action := "preserve and verify recovery"

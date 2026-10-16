@@ -25,7 +25,8 @@ type Engine struct {
 	Config           Config
 	Activity         func(context.Context) Activity
 	Now              func() time.Time
-	allowLocalRemote bool // Fixture tests only; never configurable by CLI or Pi.
+	allowLocalRemote bool   // Fixture tests only; never configurable by CLI or Pi.
+	scanAfter        string // Private discovery cursor; never changes approval scope.
 }
 
 func NewEngine(c Config) *Engine { return &Engine{Config: c, Activity: ReadActivity, Now: time.Now} }
@@ -146,18 +147,37 @@ func (e *Engine) Inspect(ctx context.Context, path string, activity Activity) Ca
 		block(&c, "submodules_require_manual_preservation")
 	}
 	indexEntries, indexErr := gitCommand(ctx, path, nil, "ls-files", "--stage", "-z")
+	var indexedPaths []byte
 	if indexErr != nil {
 		block(&c, "index_state_unknown")
 	} else {
 		for _, entry := range bytes.Split(indexEntries, []byte{0}) {
-			metadata, _, _ := strings.Cut(string(entry), "\t")
+			metadata, relative, _ := strings.Cut(string(entry), "\t")
 			fields := strings.Fields(metadata)
 			if len(fields) == 3 {
+				indexedPaths = append(indexedPaths, []byte(relative)...)
+				indexedPaths = append(indexedPaths, 0)
 				if fields[0] == "160000" {
 					block(&c, "submodules_require_manual_preservation")
 				}
 				if fields[2] != "0" {
 					block(&c, "unmerged_index_requires_manual_preservation")
+				}
+			}
+		}
+	}
+	// Git status/diff can invoke globally configured clean filters when a
+	// repository requests them through attributes. Detect that before either
+	// source command runs; check-attr itself only reads attribute metadata.
+	if len(indexedPaths) > 0 {
+		attrs, attrErr := gitInput(ctx, path, nil, indexedPaths, "check-attr", "-z", "--stdin", "filter")
+		if attrErr != nil {
+			block(&c, "content_filter_state_unknown")
+		} else {
+			fields := strings.Split(attrs, "\x00")
+			for i := 2; i < len(fields); i += 3 {
+				if fields[i] != "unspecified" && fields[i] != "unset" {
+					block(&c, "content_filters_require_manual_preservation")
 				}
 			}
 		}
@@ -246,8 +266,8 @@ func (e *Engine) Inspect(ctx context.Context, path string, activity Activity) Ca
 		}
 	}
 	// A staged intermediate version and a newer worktree version are two pieces of work.
-	_, staged := gitText(ctx, path, "diff", "--cached", "--quiet")
-	_, unstaged := gitText(ctx, path, "diff", "--quiet")
+	_, staged := gitText(ctx, path, "diff", "--no-ext-diff", "--no-textconv", "--cached", "--quiet")
+	_, unstaged := gitText(ctx, path, "diff", "--no-ext-diff", "--no-textconv", "--quiet")
 	if staged != nil && unstaged != nil {
 		block(&c, "staged_and_unstaged_versions_require_manual_preservation")
 	}
@@ -289,6 +309,7 @@ func (e *Engine) Scan(ctx context.Context) (Plan, error) {
 	}
 	activity := e.Activity(ctx)
 	seen := map[string]bool{}
+	var discovered []string
 	for _, configured := range e.Config.Roots {
 		root, err := filepath.EvalSymlinks(configured)
 		if err != nil {
@@ -314,18 +335,37 @@ func (e *Engine) Scan(ctx context.Context) (Plan, error) {
 				return filepath.SkipDir
 			}
 			if _, err := os.Lstat(filepath.Join(path, ".git")); err == nil && path != root && !seen[path] {
-				if len(p.Candidates) >= e.Config.MaxProjects {
-					return errors.New("project limit reached")
+				if len(discovered) >= 10000 {
+					return errors.New("discovery limit reached")
 				}
 				seen[path] = true
-				p.Candidates = append(p.Candidates, e.Inspect(ctx, path, activity))
+				discovered = append(discovered, path)
 			}
 			return nil
 		})
 		if err != nil {
-			p.Warnings = append(p.Warnings, "Scan stopped at its time or project budget")
+			p.Warnings = append(p.Warnings, "Discovery stopped at its time or 10000-project budget")
 			break
 		}
+	}
+	// Discover first, then inspect a rotating bounded window. A large early
+	// root cannot permanently starve every later root on periodic audits.
+	slices.Sort(discovered)
+	start, exact := slices.BinarySearch(discovered, e.scanAfter)
+	if exact {
+		start++
+	}
+	if start >= len(discovered) {
+		start = 0
+	}
+	for i := 0; i < len(discovered); i++ {
+		if ctx.Err() != nil || len(p.Candidates) >= e.Config.MaxProjects {
+			p.Warnings = append(p.Warnings, "Partial inspection; the next audit resumes after this window")
+			break
+		}
+		path := discovered[(start+i)%len(discovered)]
+		p.Candidates = append(p.Candidates, e.Inspect(ctx, path, activity))
+		e.scanAfter = path
 	}
 	slices.SortStableFunc(p.Candidates, func(a, b Candidate) int {
 		if a.SizeBytes > b.SizeBytes {

@@ -32,6 +32,56 @@ func TestRemoteAndRefIdentityBoundToApproval(t *testing.T) {
 	}
 }
 
+func TestGlobalContentFilterNeverRunsDuringReport(t *testing.T) {
+	f := newFixture(t)
+	base := filepath.Dir(f.root)
+	home := filepath.Join(base, "filter-home")
+	if err := os.Mkdir(home, 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	marker := filepath.Join(base, "filter-must-not-run")
+	write(t, filepath.Join(home, ".gitconfig"), "[filter \"fixture\"]\n clean = /usr/bin/touch "+marker+"\n")
+	write(t, filepath.Join(f.repo, ".gitattributes"), "source.txt filter=fixture\n")
+	old(t, filepath.Join(f.repo, ".gitattributes"))
+	c := f.e.Inspect(context.Background(), f.repo, Activity{Known: true})
+	if c.Eligible || !strings.Contains(strings.Join(c.Blockers, ","), "content_filters") {
+		t.Fatal(c.Blockers)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatal("Git content filter executed during report")
+	}
+}
+
+func TestBoundedScanResumesAcrossProjectsAndRoots(t *testing.T) {
+	f := newFixture(t)
+	for _, name := range []string{"b-project", "c-project"} {
+		path := filepath.Join(f.root, name)
+		runGit(t, f.root, "clone", "--branch", "main", f.remote, path)
+		old(t, filepath.Join(path, "source.txt"))
+	}
+	f.e.Config.MaxProjects = 2
+	seen := map[string]bool{}
+	for i := 0; i < 3; i++ {
+		fresh := NewEngine(f.e.Config)
+		fresh.allowLocalRemote = true
+		fresh.Activity = f.e.Activity
+		p, err := fresh.RunReport(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(p.Candidates) != 2 || len(p.Warnings) == 0 {
+			t.Fatal("partial report not explicit")
+		}
+		for _, c := range p.Candidates {
+			seen[c.Path] = true
+		}
+	}
+	if len(seen) != 3 {
+		t.Fatalf("later projects starved: %v", seen)
+	}
+}
+
 func TestPrivateStateOrActivityAppearingDuringPreservation(t *testing.T) {
 	for _, kind := range []string{"private state", "activity", "source"} {
 		t.Run(kind, func(t *testing.T) {

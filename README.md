@@ -27,7 +27,7 @@ infinite-disk apply --review
 infinite-disk apply --project PROJECT_ID --preserve-only
 ```
 
-Empty input, EOF, and `no` skip the project. `--review` adds the detailed checks; the ordinary prompt still names the project, estimated size, and action. For a trusted Desktop approval flow, `--project PROJECT_ID --approve-plan EXACT_PLAN_SHA256` is the explicit non-interactive equivalent. There is no `--yes-all`. Plans expire after 24 hours and are rejected when the configuration or source changes.
+Empty input, EOF, and `no` skip the project. `--review` adds detailed checks and any Pi advisory; the ordinary prompt still names the project, estimated size, upload destination host, recovery exclusions, and action. For a trusted Desktop approval flow, `--project PROJECT_ID --approve-plan EXACT_PLAN_SHA256` is the explicit non-interactive equivalent. There is no `--yes-all`. Plans expire after 24 hours and are rejected when the configuration, source, Git refs, or remote identity changes. Rescan before applying a previously preserve-only project again; receipts and bundles are intentionally not overwritten.
 
 After approval, the Go engine:
 
@@ -71,7 +71,7 @@ infinite-disk service uninstall
 
 Installs only this user's Infinite Disk launchd agent (macOS) or systemd user service (Linux), with a stable private copy of the executable. `--platform cron` installs a marked five-minute cron block and preserves other entries. Systemd user services normally require an active login/user manager; this does not enable lingering or elevate privileges.
 
-The watcher checks the home filesystem every minute. It audits daily and, under pressure, at most hourly. Pressure defaults to **less than 100 GiB or 15% free**, adjustable in the private configuration. It **only saves reports**. No AI requests are scheduled by default; `agent_enabled` is false. Explicitly enabling it additionally requires a provider key in the service environment and permits at most one bounded triage attempt per day. Keychain integration and hard dollar budgets are roadmap work.
+The watcher checks the home filesystem every minute. It audits daily and, under pressure, at most hourly. Pressure defaults to **less than 100 GiB or 15% free**, adjustable in the private configuration. It **only saves reports**. Large inventories are inspected in rotating bounded windows; warnings identify partial reports, and the next audit resumes rather than starving later projects. No AI requests are scheduled by default; `agent_enabled` is false. Explicitly enabling it additionally requires a provider key in the service environment and permits at most one bounded triage attempt per day. Keychain integration and hard dollar budgets are roadmap work.
 
 ## Logs, integration, and limits
 

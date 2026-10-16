@@ -158,12 +158,37 @@ func (e *Engine) RunReport(ctx context.Context) (Plan, error) {
 		return Plan{}, err
 	}
 	defer release()
+	cursorFile := filepath.Join(e.Config.StateDir, "discovery-cursor.json")
+	var cursor struct {
+		Version      int    `json:"version"`
+		ConfigDigest string `json:"config_digest"`
+		LastPath     string `json:"last_path"`
+	}
+	if b, readErr := os.ReadFile(cursorFile); readErr == nil {
+		if json.Unmarshal(b, &cursor) != nil {
+			return Plan{}, errors.New("invalid discovery cursor")
+		}
+		if cursor.Version == ProtocolVersion && cursor.ConfigDigest == ConfigDigest(e.Config) {
+			e.scanAfter = cursor.LastPath
+		} else {
+			e.scanAfter = ""
+		}
+	} else if !errors.Is(readErr, os.ErrNotExist) {
+		return Plan{}, readErr
+	}
 	p, err := e.Scan(ctx)
 	if err != nil {
 		return p, err
 	}
 	p, err = SavePlan(e.Config, p)
 	if err != nil {
+		return p, err
+	}
+	cursor.Version = ProtocolVersion
+	cursor.ConfigDigest = ConfigDigest(e.Config)
+	cursor.LastPath = e.scanAfter
+	cursorBytes, _ := json.Marshal(cursor)
+	if err = atomicPrivate(cursorFile, cursorBytes); err != nil {
 		return p, err
 	}
 	err = AppendEvent(e.Config, Event{Type: "scan_completed", PlanID: p.ID, Outcome: "report-only"})

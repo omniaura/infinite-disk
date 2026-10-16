@@ -32,7 +32,7 @@ Unreachable/reflog-only objects and local Git settings are outside the v1 bundle
 
 ## Budgets and operational behavior
 
-Discovery is depth/project bounded, capped at five minutes, with bounded Git/du subprocesses. Nested-repository inspection is capped at 250,000 entries/project. A busy or opaque project is reported, not forced through. The default monitor checks disk pressure every minute, audits hourly under pressure or daily otherwise, and does not run paid AI. Opt-in AI is at most once per day, four requests, 60-second worker/75-second parent deadline, without retries/cache warming. Logs rotate at five 10-MiB files; report retention is 50. Bundles/receipts require explicit human retention management.
+Discovery is depth bounded with a 10,000-project hard cap and five-minute cooperative scan budget, with bounded Git/du subprocesses. Inspection rotates through the discovered project set using a private cursor, so a per-audit project/time limit does not repeatedly starve later roots. Partial discovery/inspection produces explicit warnings; unresponsive filesystem syscalls can exceed a cooperative deadline. Nested-repository inspection is capped at 250,000 entries/project. A busy or opaque project is reported, not forced through. The default monitor checks disk pressure every minute, audits hourly under pressure or daily otherwise, and does not run paid AI. Opt-in AI is at most once per day, four requests, 60-second worker/75-second parent deadline, without retries/cache warming. Logs rotate at five 10-MiB files; report retention is 50. Bundles/receipts require explicit human retention management.
 
 ## Design sources
 

@@ -111,7 +111,18 @@ func (e *Engine) preserve(ctx context.Context, c Candidate, planID string, r *Re
 		return err
 	}
 	ref := fmt.Sprintf("refs/heads/infinite-disk/recovery/%s-%s", c.ID, planID[:12])
+	r.RecoveryRef = ref
+	r.RecoveryCommit = commit
+	r.RemoteURL = remote
+	r.Steps = append(r.Steps, Evidence{"recovery_commit", "created", "Snapshot created without changing the user's branch or index"})
+	if err = saveReceipt(e.Config, *r); err != nil {
+		return err
+	}
 	if _, err = gitInput(ctx, c.Path, nil, nil, "push", "--no-verify", "--", remote, commit+":"+ref); err != nil {
+		return err
+	}
+	r.Steps = append(r.Steps, Evidence{"recovery_push", "completed", "Remote write completed; exact readback verification follows"})
+	if err = saveReceipt(e.Config, *r); err != nil {
 		return err
 	}
 	remoteState, err := gitInput(ctx, c.Path, nil, nil, "ls-remote", "--refs", "--", remote, ref)
@@ -127,9 +138,6 @@ func (e *Engine) preserve(ctx context.Context, c Candidate, planID string, r *Re
 	if _, err = gitCommand(ctx, c.Path, nil, "update-ref", localRef, commit); err != nil {
 		return err
 	}
-	r.RecoveryRef = ref
-	r.RecoveryCommit = commit
-	r.RemoteURL = remote
 	r.Steps = append(r.Steps, Evidence{"remote_recovery", "verified", "Recovery ref resolves to the exact preservation commit"})
 	if c.Kind == "clone" {
 		shallow, err := gitText(ctx, c.Path, "rev-parse", "--is-shallow-repository")
@@ -148,6 +156,11 @@ func (e *Engine) preserve(ctx context.Context, c Candidate, planID string, r *Re
 			return err
 		}
 		if err = os.Chmod(bundle, 0600); err != nil {
+			return err
+		}
+		r.BundlePath = bundle
+		r.Steps = append(r.Steps, Evidence{"git_bundle", "created", "Private bundle written; independent restore verification follows"})
+		if err = saveReceipt(e.Config, *r); err != nil {
 			return err
 		}
 		verify, err := os.MkdirTemp(e.Config.StateDir, "bundle-verify-*")
