@@ -266,9 +266,12 @@ func (e *Engine) Inspect(ctx context.Context, path string, activity Activity) Ca
 		}
 	}
 	// A staged intermediate version and a newer worktree version are two pieces of work.
-	_, staged := gitText(ctx, path, "diff", "--no-ext-diff", "--no-textconv", "--cached", "--quiet")
-	_, unstaged := gitText(ctx, path, "diff", "--no-ext-diff", "--no-textconv", "--quiet")
-	if staged != nil && unstaged != nil {
+	staged, stagedErr := gitCommand(ctx, path, nil, "diff", "--no-ext-diff", "--no-textconv", "--cached", "--name-only", "-z")
+	unstaged, unstagedErr := gitCommand(ctx, path, nil, "diff", "--no-ext-diff", "--no-textconv", "--name-only", "-z")
+	if stagedErr != nil || unstagedErr != nil {
+		block(&c, "index_comparison_unknown")
+	}
+	if len(staged) > 0 && len(unstaged) > 0 {
 		block(&c, "staged_and_unstaged_versions_require_manual_preservation")
 	}
 	c.Evidence = append(c.Evidence, Evidence{"git_source", "checked", fmt.Sprintf("HEAD %s; %d changed files", head, dirty)}, Evidence{"private_state", "checked", "Unknown ignored files and sensitive changed content block removal"})
