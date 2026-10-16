@@ -1,0 +1,21 @@
+name: Bug report
+description: Report unexpected behavior without private data
+body:
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and actual behavior
+      description: Do not paste credentials, private inventories, source, or unredacted paths.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Version, OS, and reproduction using disposable fixtures
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Safety impact and available recovery receipt
+      description: If data or security may be at risk, use private vulnerability reporting instead.

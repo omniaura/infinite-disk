@@ -1,0 +1,78 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  go:
+    name: Go safety (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.27.1'
+      - run: go test -race -cover ./...
+      - run: go vet ./...
+      - name: Check formatting
+        run: test -z "$(gofmt -l cmd internal agent/embed.go)"
+      - run: go build -trimpath -o bin/infinite-disk ./cmd/infinite-disk
+      - run: bin/infinite-disk --help
+  pi:
+    name: Pi worker
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: agent
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: agent/package-lock.json
+      - run: npm ci --ignore-scripts --no-fund
+      - run: npm test
+      - run: npm audit --omit=dev --audit-level=moderate
+      - run: node ../scripts/check-source.mjs
+      - run: node ../scripts/notices.mjs --check
+  security:
+    name: Go vulnerability check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.27.1'
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+  required:
+    name: Required checks
+    if: always()
+    needs: [go, pi, security]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enforce all safety gates
+        env:
+          GO_RESULT: ${{ needs.go.result }}
+          PI_RESULT: ${{ needs.pi.result }}
+          SECURITY_RESULT: ${{ needs.security.result }}
+        run: test "$GO_RESULT" = success && test "$PI_RESULT" = success && test "$SECURITY_RESULT" = success
