@@ -267,7 +267,10 @@ func (e *Engine) Inspect(ctx context.Context, path string, activity Activity) Ca
 	}
 	// A staged intermediate version and a newer worktree version are two pieces of work.
 	staged, stagedErr := gitCommand(ctx, path, nil, "diff", "--no-ext-diff", "--no-textconv", "--cached", "--name-only", "-z")
-	unstaged, unstagedErr := gitCommand(ctx, path, nil, "diff", "--no-ext-diff", "--no-textconv", "--name-only", "-z")
+	// Name-only/quiet diff can report stat-dirty index entries without comparing
+	// their bytes when refresh is disabled. Patch generation performs that
+	// comparison without refreshing the user's index.
+	unstaged, unstagedErr := gitCommand(ctx, path, nil, "diff", "--no-ext-diff", "--no-textconv", "--binary")
 	if stagedErr != nil || unstagedErr != nil {
 		block(&c, "index_comparison_unknown")
 	}
