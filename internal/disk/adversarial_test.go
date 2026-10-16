@@ -142,6 +142,26 @@ func TestSymlinkStateAndLogRotation(t *testing.T) {
 	}
 }
 
+func TestStateNeverClaimsOrChangesUnownedDirectory(t *testing.T) {
+	f := newFixture(t)
+	foreign := filepath.Join(filepath.Dir(f.root), "unowned")
+	if err := os.Mkdir(foreign, 0755); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(foreign, "keep.txt"), "unowned data")
+	before, _ := os.Stat(foreign)
+	c := f.e.Config
+	c.StateDir = foreign
+	if EnsureState(c) == nil {
+		t.Fatal("unowned nonempty directory claimed")
+	}
+	after, _ := os.Stat(foreign)
+	if before.Mode().Perm() != after.Mode().Perm() {
+		t.Fatal("unowned directory permissions changed")
+	}
+	exists(t, filepath.Join(foreign, "keep.txt"))
+}
+
 func TestRestoreRefusesTamperedBundle(t *testing.T) {
 	f := newFixture(t)
 	p := plan(t, f)

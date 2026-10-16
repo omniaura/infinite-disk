@@ -17,6 +17,8 @@ func itoa(i int) string                 { return strconv.Itoa(i) }
 
 var validPlanID = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
+const stateMarker = "Infinite Disk private state v1\n"
+
 func EnsureState(c Config) error {
 	if err := c.Validate(); err != nil {
 		return err
@@ -28,6 +30,26 @@ func EnsureState(c Config) error {
 	}
 	if err := os.MkdirAll(c.StateDir, 0700); err != nil {
 		return err
+	}
+	marker := filepath.Join(c.StateDir, ".infinite-disk-state")
+	if info, err := os.Lstat(marker); errors.Is(err, os.ErrNotExist) {
+		entries, readErr := os.ReadDir(c.StateDir)
+		if readErr != nil {
+			return readErr
+		}
+		if len(entries) > 0 {
+			return errors.New("state directory contains unowned data; choose a new empty private directory")
+		}
+		if err = atomicPrivate(marker, []byte(stateMarker)); err != nil {
+			return err
+		}
+	} else if err != nil || !info.Mode().IsRegular() {
+		return errors.New("invalid state ownership marker")
+	} else {
+		b, readErr := os.ReadFile(marker)
+		if readErr != nil || string(b) != stateMarker {
+			return errors.New("invalid state ownership marker")
+		}
 	}
 	return os.Chmod(c.StateDir, 0700)
 }
