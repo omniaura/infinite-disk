@@ -178,6 +178,11 @@ func (e *Engine) inspectCache(ctx context.Context, c Candidate, activity Activit
 		return measureCandidate(ctx, c)
 	}
 	h := sha256.New()
+	projectInfo, projectErr := os.Stat(c.CommonDir)
+	if projectErr != nil {
+		block(&c, "artifact_filesystem_unknown")
+		return c
+	}
 	count := 0
 	newest := time.Time{}
 	err = filepath.WalkDir(c.Path, func(path string, d fs.DirEntry, walkErr error) error {
@@ -192,12 +197,15 @@ func (e *Engine) inspectCache(ctx context.Context, c Candidate, activity Activit
 			return errors.New("artifact inspection limit")
 		}
 		rel, _ := filepath.Rel(c.CommonDir, path)
-		if d.Name() == ".git" || sensitiveName.MatchString(filepath.ToSlash(rel)) {
+		if strings.EqualFold(d.Name(), ".git") || sensitiveName.MatchString(filepath.ToSlash(rel)) {
 			return errors.New("artifact contains private state or repository")
 		}
 		info, err := d.Info()
 		if err != nil {
 			return err
+		}
+		if !sameDevice(projectInfo, info) {
+			return errors.New("artifact crosses a mount or device metadata is unknown")
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
 			return errors.New("artifact contains a symlink; requires manual review")
