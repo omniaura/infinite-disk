@@ -196,6 +196,7 @@ func New(version string) *cobra.Command {
 	apply.Flags().BoolVar(&reviewDetails, "review", false, "Show full evidence before each approval prompt")
 	root.AddCommand(apply)
 	root.AddCommand(cacheCommand(load, &asJSON))
+	root.AddCommand(locationsCommand(load, &configPath, &asJSON))
 	var restorePlan, restoreProject, restoreTo string
 	restore := &cobra.Command{Use: "restore", Short: "Restore approved work from a checksum-verified private bundle; never overwrite", RunE: func(cmd *cobra.Command, _ []string) error {
 		e, err := load()

@@ -19,6 +19,16 @@ Repeat `--root` for multiple project-parent directories. With no roots supplied,
 
 ## Read a report
 
+### Include your coding apps
+
+```sh
+infinite-disk locations       # show known app locations + embedded project layouts
+infinite-disk locations --add # explicitly save existing missing roots
+infinite-disk scan            # rescan; previous approvals are invalidated
+```
+
+Known layouts cover Claude Code, Codex, Cursor, Grok/Grok Bot, T3 Code and Emdash. Embedded `.claude/worktrees`, `.worktrees`, `worktrees` and `workspaces` are discovered under `~/code` and `~/projects`, without following symlinks or traversing dependency/Git stores. Existing configurations are never silently widened: `locations --add` is explicit opt-in. Custom app storage outside these parents still needs an explicit config root. Missing worktrees are reported as not present, not confused with session histories or empty directories. Discovery coverage and the number inspected out of discovered projects are shown in new reports; each scan still uses a bounded rotating inspection batch. Discovery does not remove provider-native safety blockers.
+
 The default report separates **ready for approval** from **needs review** and shows the largest checkouts first. Blocked bytes are not counted as approved savings. It is a rotating project batch, **not a whole-disk inventory**; model downloads, global caches, Docker, media and app data are not included. Saved free-space measurements are labeled separately from current free space.
 
 Use `review --details` for evidence, or `review --project PROJECT_ID --details` for one project. Internal IDs and full paths stay in detail views. Output uses the terminal's existing theme and does not depend on color.

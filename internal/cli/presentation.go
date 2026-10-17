@@ -109,6 +109,16 @@ func renderPlan(w io.Writer, p disk.Plan, details bool) {
 	fmt.Fprintln(w, "\nINFINITE DISK  |  Report only")
 	fmt.Fprintf(w, "Free at scan: %s (%.1f%%)\n", size(p.Space.FreeBytes), p.Space.FreePercent)
 	fmt.Fprintf(w, "Report: %s (saved batch, not the whole disk)\n", p.CreatedAt.Local().Format("Jan 2, 15:04"))
+	if p.DiscoveredProjects > 0 {
+		fmt.Fprintf(w, "Checked this batch: %d of %d discovered projects\n", len(p.Candidates), p.DiscoveredProjects)
+	}
+	if len(p.Locations) > 0 {
+		fmt.Fprintln(w, "\nLOCATION COVERAGE")
+		for _, location := range p.Locations {
+			fmt.Fprintf(w, "  %-18s %s\n", plain(location.Provider), plain(location.Status))
+		}
+		fmt.Fprintln(w, "  Use locations for paths; locations --add includes missing locations.")
+	}
 	fmt.Fprintf(w, "Ready for approval: %s across %d checkouts\n", size(readyBytes), len(ready))
 	fmt.Fprintf(w, "Needs review: %s across %d checkouts (NOT approved savings)\n", size(blockedBytes), len(blocked))
 	if len(p.Warnings) > 0 {

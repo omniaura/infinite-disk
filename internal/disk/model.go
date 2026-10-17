@@ -54,16 +54,19 @@ type Space struct {
 }
 
 type Plan struct {
-	Version         int              `json:"version"`
-	ID              string           `json:"id"`
-	CreatedAt       time.Time        `json:"created_at"`
-	Mode            string           `json:"mode"`
-	ConfigDigest    string           `json:"config_digest"`
-	Space           Space            `json:"space"`
-	Candidates      []Candidate      `json:"candidates"`
-	Warnings        []string         `json:"warnings"`
-	Recommendations []Recommendation `json:"recommendations,omitempty"`
-	AgentSteps      []Evidence       `json:"agent_steps,omitempty"`
+	Version            int              `json:"version"`
+	ID                 string           `json:"id"`
+	CreatedAt          time.Time        `json:"created_at"`
+	Mode               string           `json:"mode"`
+	ConfigDigest       string           `json:"config_digest"`
+	Space              Space            `json:"space"`
+	Candidates         []Candidate      `json:"candidates"`
+	Warnings           []string         `json:"warnings"`
+	Recommendations    []Recommendation `json:"recommendations,omitempty"`
+	AgentSteps         []Evidence       `json:"agent_steps,omitempty"`
+	Locations          []Location       `json:"locations,omitempty"`
+	DiscoveredProjects int              `json:"discovered_projects,omitempty"`
+	DiscoveryComplete  bool             `json:"discovery_complete,omitempty"`
 }
 
 type Recommendation struct {

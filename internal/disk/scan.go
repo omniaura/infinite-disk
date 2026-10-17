@@ -310,12 +310,16 @@ func (e *Engine) Scan(ctx context.Context) (Plan, error) {
 		return p, errors.New("cannot read free disk space")
 	}
 	activity := e.Activity(ctx)
+	home, _ := os.UserHomeDir()
+	p.Locations, _ = Locations(e.Config, home, false)
 	seen := map[string]bool{}
 	var discovered []string
-	for _, configured := range e.Config.Roots {
+	p.DiscoveryComplete = true
+	for _, configured := range minimalRoots(e.Config.Roots) {
 		root, err := filepath.EvalSymlinks(configured)
 		if err != nil {
 			p.Warnings = append(p.Warnings, "A configured discovery root is unavailable")
+			p.DiscoveryComplete = false
 			continue
 		}
 		err = filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
@@ -324,6 +328,7 @@ func (e *Engine) Scan(ctx context.Context) (Plan, error) {
 			}
 			if walkErr != nil {
 				p.Warnings = append(p.Warnings, "A directory could not be inspected")
+				p.DiscoveryComplete = false
 				return filepath.SkipDir
 			}
 			if !d.IsDir() {
@@ -347,9 +352,11 @@ func (e *Engine) Scan(ctx context.Context) (Plan, error) {
 		})
 		if err != nil {
 			p.Warnings = append(p.Warnings, "Discovery stopped at its time or 10000-project budget")
+			p.DiscoveryComplete = false
 			break
 		}
 	}
+	p.DiscoveredProjects = len(discovered)
 	// Discover first, then inspect a rotating bounded window. A large early
 	// root cannot permanently starve every later root on periodic audits.
 	slices.Sort(discovered)

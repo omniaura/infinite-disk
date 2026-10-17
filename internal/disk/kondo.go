@@ -84,7 +84,7 @@ func (e *Engine) CacheScan(ctx context.Context) (Plan, error) {
 	defer cancel()
 	args := []string{"--dry-run", "--same-filesystem", "--older", fmt.Sprintf("%dd", e.Config.IdleDays), "--"}
 	p := Plan{Version: ProtocolVersion, CreatedAt: e.Now().UTC(), Mode: "report-only", ConfigDigest: ConfigDigest(e.CacheConfig()), Candidates: []Candidate{}, Warnings: []string{}}
-	for _, root := range e.Config.Roots {
+	for _, root := range minimalRoots(e.Config.Roots) {
 		if _, err := os.Stat(root); errors.Is(err, os.ErrNotExist) {
 			p.Warnings = append(p.Warnings, "A configured root is missing.")
 			continue
@@ -168,8 +168,14 @@ func (e *Engine) inspectCache(ctx context.Context, c Candidate, activity Activit
 		block(&c, "artifact_contains_tracked_files")
 	}
 	top, err := gitText(ctx, c.CommonDir, "rev-parse", "--show-toplevel")
-	if err != nil || top != c.CommonDir {
+	if err != nil || !within(top, c.CommonDir) {
 		block(&c, "artifact_repository_unknown")
+	}
+	if top != "" && activity.Busy(top) {
+		block(&c, "project_in_use")
+	}
+	if !c.Eligible {
+		return measureCandidate(ctx, c)
 	}
 	h := sha256.New()
 	count := 0

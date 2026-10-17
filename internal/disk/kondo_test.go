@@ -100,6 +100,26 @@ func TestCacheApprovalRemovesOnlyArtifact(t *testing.T) {
 		t.Fatal("changed source HEAD")
 	}
 }
+
+func TestCacheMonorepoComponentAndRootActivity(t *testing.T) {
+	f, c := cacheFixture(t)
+	component := filepath.Join(f.repo, "component")
+	if err := os.MkdirAll(component, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(c.Path, filepath.Join(component, "node_modules")); err != nil {
+		t.Fatal(err)
+	}
+	c.Path = filepath.Join(component, "node_modules")
+	c.CommonDir = component
+	c.ID = pathID(c.Path)
+	got := f.e.inspectCache(context.Background(), c, Activity{Known: true})
+	eligible(t, got)
+	got = f.e.inspectCache(context.Background(), c, Activity{Known: true, Paths: []string{f.repo}})
+	if got.Eligible {
+		t.Fatal("ignored monorepo root activity")
+	}
+}
 func TestCacheSafetyBlockers(t *testing.T) {
 	cases := []struct {
 		name   string
