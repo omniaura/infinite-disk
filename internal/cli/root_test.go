@@ -28,7 +28,7 @@ func TestApprovalDefaultNoAndExactSelection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, input := range []string{"", "\n", "no\n"} {
+	for _, input := range []string{"", "\n", "no\n", "q\n", "quit\n", "yes"} {
 		cmd := New("test")
 		var out, diagnostic bytes.Buffer
 		cmd.SetIn(strings.NewReader(input))

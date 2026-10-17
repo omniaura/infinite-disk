@@ -1,0 +1,3 @@
+# Terminal design
+
+Use the user's terminal theme and font. Do not force light/dark colors or depend on ANSI decoration. Use short headings, aligned size columns, plain-language status and blank-line separation. Project labels identify the workspace and repository; full paths and machine IDs belong in explicit details. Escape control characters in filesystem names and advisory text. Default reports summarize totals and show the largest opportunities, while detail mode retains exact evidence. Approval prompts describe effects in short numbered steps and distinguish cache removal from deleting the checkout.
