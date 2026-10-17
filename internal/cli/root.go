@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -41,6 +42,9 @@ func New(version string) *cobra.Command {
 		if err != nil {
 			return err
 		}
+		if !asJSON {
+			fmt.Fprintln(cmd.ErrOrStderr(), "Scanning checkouts (report only). May take up to five minutes; Ctrl+C cancels.")
+		}
 		p, err := e.RunReport(cmd.Context())
 		if err != nil {
 			return err
@@ -61,6 +65,7 @@ func New(version string) *cobra.Command {
 	root.AddCommand(scan)
 	var planID string
 	var details bool
+	var reviewProject string
 	review := &cobra.Command{Use: "review", Short: "Review a saved report and the checks actually performed", RunE: func(cmd *cobra.Command, _ []string) error {
 		e, err := load()
 		if err != nil {
@@ -70,14 +75,32 @@ func New(version string) *cobra.Command {
 		if err != nil {
 			return err
 		}
+		if reviewProject != "" {
+			var selected []disk.Candidate
+			for _, candidate := range p.Candidates {
+				if candidate.ID == reviewProject {
+					selected = append(selected, candidate)
+				}
+			}
+			if len(selected) == 0 {
+				return errors.New("project ID is not in this plan")
+			}
+			p.Candidates = selected
+		}
 		if asJSON {
 			return print(cmd, p)
 		}
 		renderPlan(cmd.OutOrStdout(), p, details)
+		if home, err := os.UserHomeDir(); err == nil {
+			if current, err := disk.DiskSpace(home); err == nil {
+				fmt.Fprintf(cmd.OutOrStdout(), "Current disk free: %s\n", size(current.FreeBytes))
+			}
+		}
 		return nil
 	}}
 	review.Flags().StringVar(&planID, "plan", "latest", "Saved immutable plan ID")
 	review.Flags().BoolVar(&details, "details", false, "Show evidence and proposed future steps")
+	review.Flags().StringVar(&reviewProject, "project", "", "Show just one project ID from this report")
 	root.AddCommand(review)
 	var applyPlan, project, approval string
 	var preserveOnly bool
@@ -108,34 +131,40 @@ func New(version string) *cobra.Command {
 		reader := bufio.NewReader(cmd.InOrStdin())
 		results := []disk.Receipt{}
 		for _, c := range p.Candidates {
+			if err := cmd.Context().Err(); err != nil {
+				return err
+			}
 			if !c.Eligible || (project != "" && c.ID != project) {
 				continue
 			}
 			approved := approval == p.ID
 			if !approved {
-				fmt.Fprintf(cmd.ErrOrStderr(), "\nProject %s: %s (%.2f GiB)\n", c.ID, c.Path, float64(c.SizeBytes)/(1<<30))
-				fmt.Fprintf(cmd.ErrOrStderr(), "Changed source will be pushed to the existing origin on %s. Recovery excludes ignored dependency caches, local Git settings, and unreachable-only objects.\n", c.RemoteHost)
+				renderApproval(cmd.ErrOrStderr(), c, preserveOnly)
 				if reviewDetails {
 					for _, v := range c.Evidence {
-						fmt.Fprintf(cmd.ErrOrStderr(), "  %s: %s — %s\n", v.Check, v.Outcome, v.Detail)
+						renderEvidence(cmd.ErrOrStderr(), v)
 					}
 					for _, recommendation := range p.Recommendations {
 						if recommendation.CandidateID == c.ID {
-							fmt.Fprintf(cmd.ErrOrStderr(), "  Pi advisory: %s — %s\n", recommendation.Decision, recommendation.Reason)
+							wrapped(cmd.ErrOrStderr(), "  ", "Pi advisory: "+recommendation.Decision+". "+recommendation.Reason)
 							for _, step := range recommendation.ProposedSteps {
-								fmt.Fprintf(cmd.ErrOrStderr(), "    Proposed, not performed: %s\n", step)
+								wrapped(cmd.ErrOrStderr(), "    ", "Proposed, not performed: "+step)
 							}
 						}
 					}
 				}
-				action := "preserve and verify recovery"
+				action := "Create verified recovery only"
 				if !preserveOnly {
-					action += " and PERMANENTLY REMOVE this checkout"
+					action = "Permanently remove this entire checkout"
 				}
-				fmt.Fprintf(cmd.ErrOrStderr(), "Approve %s? [y/N] ", action)
-				line, readErr := reader.ReadString('\n')
+				fmt.Fprintf(cmd.ErrOrStderr(), "Approve %s? [y/N] (q quits, Ctrl+C cancels) ", action)
+				line, readErr := readLine(cmd.Context(), reader)
 				if readErr != nil && !errors.Is(readErr, io.EOF) {
 					return readErr
+				}
+				if errors.Is(readErr, io.EOF) || strings.EqualFold(strings.TrimSpace(line), "q") || strings.EqualFold(strings.TrimSpace(line), "quit") {
+					fmt.Fprintln(cmd.ErrOrStderr(), "Review ended. No further projects will be changed.")
+					break
 				}
 				approved = strings.EqualFold(strings.TrimSpace(line), "y") || strings.EqualFold(strings.TrimSpace(line), "yes")
 			}
@@ -166,6 +195,8 @@ func New(version string) *cobra.Command {
 	apply.Flags().BoolVar(&preserveOnly, "preserve-only", false, "Preserve recovery without deleting the checkout")
 	apply.Flags().BoolVar(&reviewDetails, "review", false, "Show full evidence before each approval prompt")
 	root.AddCommand(apply)
+	root.AddCommand(cacheCommand(load, &asJSON))
+	root.AddCommand(locationsCommand(load, &configPath, &asJSON))
 	var restorePlan, restoreProject, restoreTo string
 	restore := &cobra.Command{Use: "restore", Short: "Restore approved work from a checksum-verified private bundle; never overwrite", RunE: func(cmd *cobra.Command, _ []string) error {
 		e, err := load()
@@ -312,42 +343,25 @@ func New(version string) *cobra.Command {
 	return root
 }
 
-func renderPlan(w io.Writer, p disk.Plan, details bool) {
-	fmt.Fprintf(w, "Infinite Disk — REPORT ONLY\nPlan: %s\nFree: %.2f GiB (%.1f%%)\n", p.ID, float64(p.Space.FreeBytes)/(1<<30), p.Space.FreePercent)
-	for _, c := range p.Candidates {
-		status := "REVIEW"
-		if !c.Eligible {
-			status = "BLOCKED"
-		}
-		size := fmt.Sprintf("%.2f GiB", float64(c.SizeBytes)/(1<<30))
-		if !c.SizeComplete {
-			size = "unknown size"
-		}
-		fmt.Fprintf(w, "\n[%s] %s  %s  %s\n", status, c.ID, size, c.Path)
-		for _, b := range c.Blockers {
-			fmt.Fprintf(w, "  blocker: %s\n", b)
-		}
-		if details {
-			for _, v := range c.Evidence {
-				fmt.Fprintf(w, "  performed: %s — %s (%s)\n", v.Check, v.Outcome, v.Detail)
-			}
-		}
-		for _, r := range p.Recommendations {
-			if r.CandidateID == c.ID {
-				fmt.Fprintf(w, "  Pi recommendation: %s — %s\n", r.Decision, r.Reason)
-				if details {
-					for _, s := range r.ProposedSteps {
-						fmt.Fprintf(w, "  proposed, NOT performed: %s\n", s)
-					}
-				}
-			}
-		}
+// A signal cancels the command context, not a blocking terminal ReadString.
+// Keep at most one pending read; cancellation ends the command immediately.
+func readLine(ctx context.Context, reader *bufio.Reader) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
 	}
-	for _, v := range p.AgentSteps {
-		fmt.Fprintf(w, "\nPi step performed: %s (%s)\n", v.Check, v.Outcome)
+	type result struct {
+		line string
+		err  error
 	}
-	for _, warning := range p.Warnings {
-		fmt.Fprintf(w, "\nWarning: %s\n", warning)
+	ch := make(chan result, 1)
+	go func() { line, err := reader.ReadString('\n'); ch <- result{line, err} }()
+	select {
+	case <-ctx.Done():
+		return "", ctx.Err()
+	case r := <-ch:
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		return r.line, r.err
 	}
-	fmt.Fprintln(w, "\nNothing was committed, pushed, or deleted. Use review --details, then apply for individual approval.")
 }

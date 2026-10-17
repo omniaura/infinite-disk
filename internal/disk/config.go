@@ -21,6 +21,8 @@ func DefaultConfig() Config {
 			filepath.Join(home, "code"), filepath.Join(home, "projects"),
 			filepath.Join(home, ".codex", "worktrees"), filepath.Join(home, ".cursor", "worktrees"),
 			filepath.Join(home, ".t3", "worktrees"),
+			filepath.Join(home, ".grok", "worktrees"), filepath.Join(home, ".grokbot", "worktrees"),
+			filepath.Join(home, "emdash", "worktrees"), filepath.Join(home, ".emdash", "worktrees"),
 		}}
 }
 

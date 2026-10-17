@@ -17,17 +17,49 @@ infinite-disk review --details
 
 Repeat `--root` for multiple project-parent directories. With no roots supplied, discovery checks `~/code`, `~/projects`, and common agent worktree directories. This is discovery scope, **not blanket deletion permission**. Missing roots produce warnings. Source inactivity defaults to seven days; age alone never authorizes removal.
 
+## Read a report
+
+### Include your coding apps
+
+```sh
+infinite-disk locations       # show known app locations + embedded project layouts
+infinite-disk locations --add # explicitly save existing missing roots
+infinite-disk scan            # rescan; previous approvals are invalidated
+```
+
+Known layouts cover Claude Code, Codex, Cursor, Grok/Grok Bot, T3 Code and Emdash. Embedded `.claude/worktrees`, `.worktrees`, `worktrees` and `workspaces` are discovered under `~/code` and `~/projects`, without following symlinks or traversing dependency/Git stores. Existing configurations are never silently widened: `locations --add` is explicit opt-in. Custom app storage outside these parents still needs an explicit config root. Missing worktrees are reported as not present, not confused with session histories or empty directories. Discovery coverage and the number inspected out of discovered projects are shown in new reports; each scan still uses a bounded rotating inspection batch. Discovery does not remove provider-native safety blockers.
+
+The default report separates **ready for approval** from **needs review** and shows the largest checkouts first. Blocked bytes are not counted as approved savings. It is a rotating project batch, **not a whole-disk inventory**; model downloads, global caches, Docker, media and app data are not included. Saved free-space measurements are labeled separately from current free space.
+
+Use `review --details` for evidence, or `review --project PROJECT_ID --details` for one project. Internal IDs and full paths stay in detail views. Output uses the terminal's existing theme and does not depend on color.
+
+## Build/dependency cleanup with Kondo
+
+Install [Kondo 0.9](https://github.com/tbillington/kondo/releases/tag/v0.9), with `--dry-run` support, on your PATH. It supplies the ecosystem/artifact catalog; Infinite Disk does not duplicate that catalog.
+
+```sh
+infinite-disk caches scan     # Kondo dry-run, followed by independent checks
+infinite-disk caches review   # separate saved artifact report
+infinite-disk caches apply    # approve exact directories individually
+# Or select one: infinite-disk caches apply --project ARTIFACT_ID
+```
+
+This flow **keeps source, Git history and the checkout**. It never invokes Kondo's recursive delete/all mode and never commits or uploads. Every artifact must be inside a configured project, entirely Git-ignored, untracked, inactive and older than the configured inactivity period. Private-state names, nested Git, symlinks, unreadable/incomplete checks and unsupported managed worktrees block cleanup. Every exact path and metadata fingerprint is rechecked after approval. Symlink-heavy dependency trees may therefore remain blocked in this first adapter. Kondo's rounded logical sizes are not used as guaranteed reclaimed bytes; Infinite Disk measures allocated sizes separately.
+
+These are normally regenerable artifacts, but custom irreplaceable data inside an artifact directory is still your responsibility. Inspect the displayed paths and stop the project's tools before approving. Deleted artifacts are **not backed up**: reinstall dependencies/rebuild afterward. Same-user concurrent filesystem mutation cannot be fully excluded. Partial removal and interruption can leave a partly cleaned artifact; source remains outside the approved paths. Cache reports are separate from checkout reports and use the same 50-report retention policy; operation logs and receipts remain private. The monitor still only runs checkout audits, not this potentially expensive Kondo pass.
+
 ## Approve one project at a time
 
 ```sh
 infinite-disk apply --review
 # Each eligible project: preserve/verify/PERMANENTLY REMOVE? [y/N]
+# Enter skips. q, quit, EOF or Ctrl+C stop the review.
 
 # Optional first step: approve recovery without removing the checkout.
 infinite-disk apply --project PROJECT_ID --preserve-only
 ```
 
-Empty input, EOF, and `no` skip the project. `--review` adds detailed checks and any Pi advisory; the ordinary prompt still names the project, estimated size, upload destination host, recovery exclusions, and action. For a trusted Desktop approval flow, `--project PROJECT_ID --approve-plan EXACT_PLAN_SHA256` is the explicit non-interactive equivalent. There is no `--yes-all`. Plans expire after 24 hours and are rejected when the configuration, source, Git refs, or remote identity changes. Rescan before applying a previously preserve-only project again; receipts and bundles are intentionally not overwritten.
+Enter and `no` skip the project. `q`, `quit`, EOF and Ctrl+C end the review; Ctrl+C exits with status 130. EOF never approves even a partial `yes` line. `--review` adds detailed checks and any Pi advisory; the ordinary prompt still names the project, estimated size, upload destination host, recovery exclusions, and action. For a trusted Desktop approval flow, `--project PROJECT_ID --approve-plan EXACT_PLAN_SHA256` is the explicit non-interactive equivalent. There is no `--yes-all`. Plans expire after 24 hours and are rejected when the configuration, source, Git refs, or remote identity changes. Rescan before applying a previously preserve-only project again; receipts and bundles are intentionally not overwritten.
 
 After approval, the Go engine:
 
