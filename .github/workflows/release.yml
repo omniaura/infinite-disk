@@ -1,0 +1,44 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.27.1'
+      - name: Build checksummed macOS and Linux archives
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          git merge-base --is-ancestor HEAD origin/main
+          go test -race ./...
+          mkdir -p dist
+          for platform in darwin linux; do
+            for arch in arm64 amd64; do
+              name="infinite-disk_${RELEASE_TAG}_${platform}_${arch}"
+              mkdir -p "dist/$name"
+              GOOS="$platform" GOARCH="$arch" CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$RELEASE_TAG" -o "dist/$name/infinite-disk" ./cmd/infinite-disk
+              cp LICENSE README.md THIRD_PARTY_NOTICES.md "dist/$name/"
+              cp -R licenses "dist/$name/licenses"
+              tar -czf "dist/$name.tar.gz" -C dist "$name"
+            done
+          done
+          cd dist
+          sha256sum ./*.tar.gz > SHA256SUMS
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: gh release create "$RELEASE_TAG" dist/*.tar.gz dist/SHA256SUMS --verify-tag --generate-notes --title "Infinite Disk $RELEASE_TAG"

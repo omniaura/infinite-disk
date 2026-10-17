@@ -1,0 +1,9 @@
+/bin/
+/dist/
+/coverage.out
+node_modules/
+.env
+.env.*
+!.env.example
+*.test
+.DS_Store
