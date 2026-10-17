@@ -41,13 +41,17 @@ func locationsCommand(load func() (*disk.Engine, error), configPath *string, asJ
 				Saved     bool            `json:"saved"`
 			}{rows, warnings, add})
 		}
-		fmt.Fprintln(cmd.OutOrStdout(), "\nCODING-APP WORKTREE LOCATIONS")
+		fmt.Fprintln(styled(cmd.OutOrStdout(), toneHeading), "\nCODING-APP WORKTREE LOCATIONS")
 		for _, row := range rows {
-			fmt.Fprintf(cmd.OutOrStdout(), "\n  %-19s %s\n", plain(row.Provider), plain(row.Status))
+			color := toneWarning
+			if row.Status == "included" {
+				color = toneReady
+			}
+			fmt.Fprintf(styled(cmd.OutOrStdout(), color), "\n  %-19s %s\n", plain(row.Provider), plain(row.Status))
 			wrapped(cmd.OutOrStdout(), "    ", row.Path)
 		}
 		for _, warning := range warnings {
-			wrapped(cmd.OutOrStdout(), "! ", warning)
+			wrapped(styled(cmd.OutOrStdout(), toneWarning), "! ", warning)
 		}
 		if add {
 			fmt.Fprintln(cmd.OutOrStdout(), "\nSaved existing locations. Old approvals are invalidated; run scan again.")

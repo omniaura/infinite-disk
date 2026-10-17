@@ -106,14 +106,14 @@ func renderPlan(w io.Writer, p disk.Plan, details bool) {
 			blockedBytes += c.SizeBytes
 		}
 	}
-	fmt.Fprintln(w, "\nINFINITE DISK  |  Report only")
+	fmt.Fprintln(styled(w, toneHeading), "\nINFINITE DISK  |  Report only")
 	fmt.Fprintf(w, "Free at scan: %s (%.1f%%)\n", size(p.Space.FreeBytes), p.Space.FreePercent)
 	fmt.Fprintf(w, "Report: %s (saved batch, not the whole disk)\n", p.CreatedAt.Local().Format("Jan 2, 15:04"))
 	if p.DiscoveredProjects > 0 {
 		fmt.Fprintf(w, "Checked this batch: %d of %d discovered projects\n", len(p.Candidates), p.DiscoveredProjects)
 	}
 	if len(p.Locations) > 0 {
-		fmt.Fprintln(w, "\nLOCATION COVERAGE")
+		fmt.Fprintln(styled(w, toneHeading), "\nLOCATION COVERAGE")
 		providers := map[string]map[string]int{}
 		var names []string
 		for _, location := range p.Locations {
@@ -135,20 +135,21 @@ func renderPlan(w io.Writer, p disk.Plan, details bool) {
 		}
 		fmt.Fprintln(w, "  Use locations for paths; locations --add includes missing locations.")
 	}
-	fmt.Fprintf(w, "Ready for approval: %s across %d checkouts\n", size(readyBytes), len(ready))
-	fmt.Fprintf(w, "Needs review: %s across %d checkouts (NOT approved savings)\n", size(blockedBytes), len(blocked))
+	fmt.Fprintf(styled(w, toneReady), "Ready for approval: %s across %d checkouts\n", size(readyBytes), len(ready))
+	fmt.Fprintf(styled(w, toneWarning), "Needs review: %s across %d checkouts (NOT approved savings)\n", size(blockedBytes), len(blocked))
 	if len(p.Warnings) > 0 {
-		wrapped(w, "! ", "Partial report or scan warnings. This is not a whole-disk inventory.")
+		wrapped(styled(w, toneWarning), "! ", "Partial report or scan warnings. This is not a whole-disk inventory.")
 	}
 	for _, group := range []struct {
 		title string
 		rows  []disk.Candidate
-	}{{"READY FOR CHECKOUT REMOVAL", ready}, {"KEEP / NEEDS REVIEW", blocked}} {
+		color tone
+	}{{"READY FOR CHECKOUT REMOVAL", ready, toneReady}, {"KEEP / NEEDS REVIEW", blocked, toneWarning}} {
 		if len(group.rows) == 0 {
 			continue
 		}
 		sort.SliceStable(group.rows, func(i, j int) bool { return group.rows[i].SizeBytes > group.rows[j].SizeBytes })
-		fmt.Fprintln(w, "\n"+group.title)
+		fmt.Fprintln(styled(w, group.color), "\n"+group.title)
 		limit := len(group.rows)
 		if !details && limit > 8 {
 			limit = 8
@@ -159,9 +160,9 @@ func renderPlan(w io.Writer, p disk.Plan, details bool) {
 				bytes = "unknown"
 			}
 			fmt.Fprintln(w)
-			wrapped(w, fmt.Sprintf("  %9s  ", bytes), label(c))
+			wrapped(styled(w, toneHeading), fmt.Sprintf("  %9s  ", bytes), label(c))
 			for _, b := range c.Blockers {
-				wrapped(w, "    ", blockerText(b))
+				wrapped(styled(w, toneWarning), "    ", blockerText(b))
 			}
 			if details {
 				wrapped(w, "    ", "Path: "+c.Path)
@@ -186,7 +187,7 @@ func renderPlan(w io.Writer, p disk.Plan, details bool) {
 		}
 	}
 	for _, warning := range p.Warnings {
-		wrapped(w, "! ", warning)
+		wrapped(styled(w, toneWarning), "! ", warning)
 	}
 	fmt.Fprintln(w, "\nNothing committed, pushed or deleted.")
 	fmt.Fprintln(w, "Build/dependency cleanup: infinite-disk caches scan")
@@ -196,11 +197,11 @@ func renderPlan(w io.Writer, p disk.Plan, details bool) {
 	}
 }
 func renderApproval(w io.Writer, c disk.Candidate, preserveOnly bool) {
-	fmt.Fprintf(w, "\n%s  (%s)\n", label(c), size(c.SizeBytes))
+	fmt.Fprintf(styled(w, toneHeading), "\n%s  (%s)\n", label(c), size(c.SizeBytes))
 	wrapped(w, "  ", "Location: "+c.Path)
 	wrapped(w, "  ", "1. Preserve source on the existing origin at "+c.RemoteHost+" and verify recovery.")
 	if !preserveOnly {
-		wrapped(w, "  ", "2. Permanently remove this entire local checkout, not just caches.")
+		wrapped(styled(w, toneDanger), "  ", "2. Permanently remove this entire local checkout, not just caches.")
 	}
-	wrapped(w, "  ", "Recovery excludes ignored dependencies, local Git settings and unreachable-only objects. Estimated savings may differ from actual free space.")
+	wrapped(styled(w, toneWarning), "  ", "Recovery excludes ignored dependencies, local Git settings and unreachable-only objects. Estimated savings may differ from actual free space.")
 }

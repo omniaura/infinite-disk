@@ -31,7 +31,13 @@ Known layouts cover Claude Code, Codex, Cursor, Grok/Grok Bot, T3 Code and Emdas
 
 The default report separates **ready for approval** from **needs review** and shows the largest checkouts first. Blocked bytes are not counted as approved savings. It is a rotating project batch, **not a whole-disk inventory**; model downloads, global caches, Docker, media and app data are not included. Saved free-space measurements are labeled separately from current free space.
 
-Use `review --details` for evidence, or `review --project PROJECT_ID --details` for one project. Internal IDs and full paths stay in detail views. Output uses the terminal's existing theme and does not depend on color.
+Use `review --details` for evidence, or `review --project PROJECT_ID --details` for one project. Internal IDs and full paths stay in detail views. Terminal reports and approval prompts use your terminal's palette: cyan headings, green ready savings, amber warnings, and red permanent-removal notices. Text labels remain meaningful without color. Colors are automatic only on a terminal (stdout and stderr detected independently); pipes, `NO_COLOR=1`, and `TERM=dumb` stay plain. Use `--color always` to explicitly force colors or `--color never` to disable them; these override the automatic environment checks. `--json` never contains ANSI colors, even with `--color always`.
+
+```sh
+infinite-disk apply --review                # automatic terminal colors
+infinite-disk review --color always         # force colors if auto detection fails
+infinite-disk review --color never          # plain text
+```
 
 ## Build/dependency cleanup with Kondo
 

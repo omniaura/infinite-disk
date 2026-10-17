@@ -74,9 +74,9 @@ func cacheCommand(load func() (*disk.Engine, error), asJSON *bool) *cobra.Comman
 				continue
 			}
 			fmt.Fprintln(cmd.ErrOrStderr())
-			wrapped(cmd.ErrOrStderr(), "  ", fmt.Sprintf("Remove %s of regenerable artifacts: %s", size(c.SizeBytes), c.Path))
+			wrapped(styled(cmd.ErrOrStderr(), toneHeading), "  ", fmt.Sprintf("Remove %s of regenerable artifacts: %s", size(c.SizeBytes), c.Path))
 			fmt.Fprintln(cmd.ErrOrStderr(), "Source and checkout stay. No commits or uploads. Reinstall/rebuild later.")
-			fmt.Fprint(cmd.ErrOrStderr(), "Delete this artifact directory? [y/N] (q quits, Ctrl+C cancels) ")
+			fmt.Fprint(styled(cmd.ErrOrStderr(), tonePrompt), "Delete this artifact directory? [y/N] (q quits, Ctrl+C cancels) ")
 			line, err := readLine(cmd.Context(), reader)
 			if errors.Is(err, io.EOF) {
 				break
@@ -97,7 +97,7 @@ func cacheCommand(load func() (*disk.Engine, error), asJSON *bool) *cobra.Comman
 				return err
 			}
 			if !*asJSON {
-				fmt.Fprintf(cmd.OutOrStdout(), "Removed artifact. Disk free: %s\n", size(receipt.AfterSpace.FreeBytes))
+				fmt.Fprintf(styled(cmd.OutOrStdout(), toneReady), "Removed artifact. Disk free: %s\n", size(receipt.AfterSpace.FreeBytes))
 			}
 		}
 		if *asJSON {
@@ -110,7 +110,7 @@ func cacheCommand(load func() (*disk.Engine, error), asJSON *bool) *cobra.Comman
 	return root
 }
 func renderCaches(w io.Writer, p disk.Plan) {
-	fmt.Fprintln(w, "\nBUILD / DEPENDENCY ARTIFACTS  |  Kondo dry-run")
+	fmt.Fprintln(styled(w, toneHeading), "\nBUILD / DEPENDENCY ARTIFACTS  |  Kondo dry-run")
 	var ready, blocked uint64
 	for _, c := range p.Candidates {
 		if c.Eligible {
@@ -124,20 +124,22 @@ func renderCaches(w io.Writer, p disk.Plan) {
 	sort.SliceStable(candidates, func(i, j int) bool { return candidates[i].SizeBytes > candidates[j].SizeBytes })
 	for _, c := range candidates {
 		status := "REVIEW"
+		color := toneWarning
 		if c.Eligible {
 			status = "READY"
+			color = toneReady
 		}
-		fmt.Fprintf(w, "\n  %9s  %-6s  %s\n", size(c.SizeBytes), status, plain(c.Name))
+		fmt.Fprintf(styled(w, color), "\n  %9s  %-6s  %s\n", size(c.SizeBytes), status, plain(c.Name))
 		wrapped(w, "    ", c.Path)
 		for _, b := range c.Blockers {
-			wrapped(w, "    ", blockerText(b))
+			wrapped(styled(w, toneWarning), "    ", blockerText(b))
 		}
 		if c.Eligible {
 			fmt.Fprintf(w, "    Select: --project %s\n", c.ID)
 		}
 	}
 	for _, warning := range p.Warnings {
-		wrapped(w, "! ", warning)
+		wrapped(styled(w, toneWarning), "! ", warning)
 	}
 	fmt.Fprintln(w, "\nNothing deleted. Source, Git history and checkouts will stay.")
 	fmt.Fprintln(w, "Review exact directories individually: infinite-disk caches apply")

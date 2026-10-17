@@ -38,7 +38,7 @@ func TestCtrlCExitsBlockedApproval(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmd := exec.Command(os.Args[0], "-test.run=^TestSignalHelper$")
-	cmd.Env = append(os.Environ(), "INFINITE_DISK_SIGNAL_HELPER=1", "INFINITE_DISK_SIGNAL_ARGS=--config\n"+config+"\napply\n--review")
+	cmd.Env = append(os.Environ(), "INFINITE_DISK_SIGNAL_HELPER=1", "INFINITE_DISK_SIGNAL_ARGS=--config\n"+config+"\napply\n--review\n--color\nalways")
 	input, err := cmd.StdinPipe()
 	if err != nil {
 		t.Fatal(err)

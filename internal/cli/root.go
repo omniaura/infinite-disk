@@ -21,9 +21,19 @@ import (
 func New(version string) *cobra.Command {
 	var configPath string
 	var asJSON bool
+	var colorMode string
 	root := &cobra.Command{Use: "infinite-disk", Short: "Approval-first disk and developer-workspace steward", Version: version, SilenceUsage: true}
+	root.PersistentPreRunE = func(cmd *cobra.Command, _ []string) error {
+		if colorMode != "auto" && colorMode != "always" && colorMode != "never" {
+			return errors.New("--color must be auto, always or never")
+		}
+		cmd.SetOut(terminalOutput(cmd.OutOrStdout(), colorMode, asJSON))
+		cmd.SetErr(terminalOutput(cmd.ErrOrStderr(), colorMode, asJSON))
+		return nil
+	}
 	root.PersistentFlags().StringVar(&configPath, "config", disk.DefaultConfigPath(), "Configuration file (never contains provider keys)")
 	root.PersistentFlags().BoolVar(&asJSON, "json", false, "Emit versioned JSON for Desktop and automation")
+	root.PersistentFlags().StringVar(&colorMode, "color", "auto", "Terminal colors: auto, always or never (JSON is always plain)")
 	load := func() (*disk.Engine, error) {
 		c, err := disk.LoadConfig(configPath)
 		if err != nil {
@@ -157,7 +167,7 @@ func New(version string) *cobra.Command {
 				if !preserveOnly {
 					action = "Permanently remove this entire checkout"
 				}
-				fmt.Fprintf(cmd.ErrOrStderr(), "Approve %s? [y/N] (q quits, Ctrl+C cancels) ", action)
+				fmt.Fprintf(styled(cmd.ErrOrStderr(), tonePrompt), "Approve %s? [y/N] (q quits, Ctrl+C cancels) ", action)
 				line, readErr := readLine(cmd.Context(), reader)
 				if readErr != nil && !errors.Is(readErr, io.EOF) {
 					return readErr
@@ -181,7 +191,7 @@ func New(version string) *cobra.Command {
 				return err
 			}
 			if !asJSON {
-				fmt.Fprintf(cmd.OutOrStdout(), "%s: %s; verified recovery %s\n", c.ID, r.Result, r.RecoveryRef)
+				fmt.Fprintf(styled(cmd.OutOrStdout(), toneReady), "%s: %s; verified recovery %s\n", c.ID, r.Result, r.RecoveryRef)
 			}
 		}
 		if asJSON {
