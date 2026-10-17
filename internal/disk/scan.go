@@ -217,6 +217,11 @@ func (e *Engine) Inspect(ctx context.Context, path string, activity Activity) Ca
 	}
 	// Even ignored dependency caches must not hide another repository.
 	count := 0
+	projectInfo, projectErr := os.Stat(path)
+	if projectErr != nil {
+		block(&c, "project_filesystem_unknown")
+		return c
+	}
 	errNested := filepath.WalkDir(path, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -225,7 +230,14 @@ func (e *Engine) Inspect(ctx context.Context, path string, activity Activity) Ca
 		if count > 250000 || ctx.Err() != nil {
 			return errors.New("nested inspection budget exceeded")
 		}
-		if p != path && d.Name() == ".git" {
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		if !sameDevice(projectInfo, info) {
+			return errors.New("project crosses a mount or device metadata is unknown")
+		}
+		if p != path && strings.EqualFold(d.Name(), ".git") {
 			if filepath.Dir(p) != path {
 				return errors.New("nested repository")
 			}
