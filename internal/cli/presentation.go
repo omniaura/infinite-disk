@@ -114,8 +114,24 @@ func renderPlan(w io.Writer, p disk.Plan, details bool) {
 	}
 	if len(p.Locations) > 0 {
 		fmt.Fprintln(w, "\nLOCATION COVERAGE")
+		providers := map[string]map[string]int{}
+		var names []string
 		for _, location := range p.Locations {
-			fmt.Fprintf(w, "  %-18s %s\n", plain(location.Provider), plain(location.Status))
+			if providers[location.Provider] == nil {
+				providers[location.Provider] = map[string]int{}
+				names = append(names, location.Provider)
+			}
+			providers[location.Provider][location.Status]++
+		}
+		sort.Strings(names)
+		for _, provider := range names {
+			var states []string
+			for _, status := range []string{"included", "not configured", "not present", "unavailable"} {
+				if n := providers[provider][status]; n > 0 {
+					states = append(states, fmt.Sprintf("%d %s", n, status))
+				}
+			}
+			fmt.Fprintf(w, "  %-18s %s\n", plain(provider), strings.Join(states, ", "))
 		}
 		fmt.Fprintln(w, "  Use locations for paths; locations --add includes missing locations.")
 	}

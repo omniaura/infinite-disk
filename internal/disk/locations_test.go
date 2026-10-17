@@ -17,6 +17,7 @@ func TestProviderLocationDiscoveryAndExplicitAdd(t *testing.T) {
 		if err := os.MkdirAll(filepath.Join(home, path), 0700); err != nil {
 			t.Fatal(err)
 		}
+		write(t, filepath.Join(home, path, "checkout/.git"), "gitdir: fixture")
 	}
 	c := DefaultConfig()
 	c.Roots = []string{filepath.Join(home, ".codex/worktrees")}
@@ -56,6 +57,25 @@ func TestProviderLocationDiscoveryAndExplicitAdd(t *testing.T) {
 	for _, root := range updated.Roots {
 		if root == filepath.Join(home, ".grok/worktrees") {
 			t.Fatal("added nonexistent root")
+		}
+	}
+}
+
+func TestLocationDiscoveryDoesNotTreatFeatureFoldersAsWorktrees(t *testing.T) {
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(home, "code/product/src/features/workspaces")
+	if err := os.MkdirAll(path, 0700); err != nil {
+		t.Fatal(err)
+	}
+	c := DefaultConfig()
+	c.Roots = nil
+	rows, _ := Locations(c, home, true)
+	for _, row := range rows {
+		if row.Path == path {
+			t.Fatal("classified feature folder as worktrees")
 		}
 	}
 }

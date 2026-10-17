@@ -117,6 +117,9 @@ func LocationsContext(ctx context.Context, c Config, home string, embedded bool)
 					return filepath.SkipDir
 				}
 				if path != parent && (d.Name() == "worktrees" || d.Name() == ".worktrees" || d.Name() == "workspaces") {
+					if !containsCheckout(ctx, path) {
+						return nil
+					}
 					if !seen[path] {
 						rows = append(rows, Location{Provider: locationProvider(path), Path: path})
 						seen[path] = true
@@ -142,6 +145,41 @@ func LocationsContext(ctx context.Context, c Config, home string, embedded bool)
 		return strings.Compare(a.Path, b.Path)
 	})
 	return rows, warnings
+}
+
+func containsCheckout(ctx context.Context, root string) bool {
+	found := false
+	count := 0
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if err != nil {
+			return filepath.SkipDir
+		}
+		if !d.IsDir() {
+			return nil
+		}
+		count++
+		if count > 2000 {
+			return errors.New("checkout probe limit")
+		}
+		if path != root {
+			if _, err := os.Lstat(filepath.Join(path, ".git")); err == nil {
+				found = true
+				return errors.New("found checkout")
+			}
+		}
+		if skipDirs[d.Name()] {
+			return filepath.SkipDir
+		}
+		rel, _ := filepath.Rel(root, path)
+		if strings.Count(rel, string(filepath.Separator)) >= 3 {
+			return filepath.SkipDir
+		}
+		return nil
+	})
+	return found
 }
 
 func AddLocations(c Config, rows []Location) (Config, error) {
