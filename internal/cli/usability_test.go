@@ -67,3 +67,15 @@ func TestApprovalClearlyDistinguishesCheckoutFromCaches(t *testing.T) {
 		}
 	}
 }
+
+func TestReportDoesNotDoubleCountNestedCheckouts(t *testing.T) {
+	p := disk.Plan{Candidates: []disk.Candidate{
+		{Path: "/projects/parent", Eligible: true, SessionsChecked: true, SizeComplete: true, SizeBytes: 2 << 30},
+		{Path: "/projects/parent/child", Eligible: true, SessionsChecked: true, SizeComplete: true, SizeBytes: 1 << 30},
+	}}
+	var out bytes.Buffer
+	renderPlan(&out, p, false)
+	if !strings.Contains(out.String(), "2.0 GiB across 2 checkouts") || !strings.Contains(out.String(), "overlap") {
+		t.Fatal(out.String())
+	}
+}

@@ -79,8 +79,14 @@ func blockerText(s string) string {
 		return "Open in a running process; keep for now."
 	case "activity_check_unavailable":
 		return "Could not verify whether this project is in use."
+	case "project_inspection_incomplete":
+		return "Inspection reached its time limit; keep until all checks finish."
 	case "shallow_repository_requires_manual_preservation":
 		return "Shallow Git clone; full recovery needs manual review."
+	case "partial_clone_requires_materialized_recovery":
+		return "Filtered/partial Git clone; missing historical objects must be materialized and recovery verified before cleanup."
+	case "shared_git_database_has_worktrees":
+		return "This Git database owns linked worktrees; keep it so their history and staged work remain intact."
 	case "source_or_secret_check_requires_review":
 		return "Source or private-data checks need manual review."
 	case "recent_artifact_activity":
@@ -110,7 +116,6 @@ func renderEvidence(w io.Writer, v disk.Evidence) {
 }
 func renderPlan(w io.Writer, p disk.Plan, details bool) {
 	var ready, blocked []disk.Candidate
-	var readyBytes, blockedBytes uint64
 	for _, c := range p.Candidates {
 		if c.Eligible && !c.SessionsChecked {
 			c.Eligible = false
@@ -118,10 +123,8 @@ func renderPlan(w io.Writer, p disk.Plan, details bool) {
 		}
 		if c.Eligible {
 			ready = append(ready, c)
-			readyBytes += c.SizeBytes
 		} else {
 			blocked = append(blocked, c)
-			blockedBytes += c.SizeBytes
 		}
 	}
 	fmt.Fprintln(styled(w, toneHeading), "\nINFINITE DISK  |  Report only")
@@ -129,6 +132,9 @@ func renderPlan(w io.Writer, p disk.Plan, details bool) {
 	fmt.Fprintf(w, "Report: %s (saved batch, not the whole disk)\n", p.CreatedAt.Local().Format("Jan 2, 15:04"))
 	if p.DiscoveredProjects > 0 {
 		fmt.Fprintf(w, "Checked this batch: %d of %d discovered projects\n", len(p.Candidates), p.DiscoveredProjects)
+	}
+	if p.DiscoveryCached && p.DiscoveredAt != nil {
+		fmt.Fprintf(w, "Project index reused from %s; --refresh discovers newly created folders.\n", p.DiscoveredAt.Local().Format("15:04"))
 	}
 	if len(p.Locations) > 0 {
 		fmt.Fprintln(styled(w, toneHeading), "\nLOCATION COVERAGE")
@@ -153,8 +159,24 @@ func renderPlan(w io.Writer, p disk.Plan, details bool) {
 		}
 		fmt.Fprintln(w, "  Use locations for paths; locations --add includes missing locations.")
 	}
+	readyBytes, _ := disk.MeasuredFootprint(ready)
+	blockedBytes, _ := disk.MeasuredFootprint(blocked)
+	_, overlaps := disk.MeasuredFootprint(p.Candidates)
+	unknownSizes := 0
+	for _, c := range p.Candidates {
+		if !c.SizeComplete {
+			unknownSizes++
+		}
+	}
 	fmt.Fprintf(styled(w, toneReady), "Ready for approval: %s across %d checkouts\n", size(readyBytes), len(ready))
 	fmt.Fprintf(styled(w, toneWarning), "Needs review: %s across %d checkouts (NOT approved savings)\n", size(blockedBytes), len(blocked))
+	if unknownSizes > 0 {
+		fmt.Fprintf(styled(w, toneWarning), "Size still unknown for %d checkouts; these are not counted as zero-size cleanup opportunities.\n", unknownSizes)
+	}
+	if overlaps {
+		wrapped(w, "! ", "Nested checkout footprints overlap. Totals are deduplicated within each group; do not add the groups together.")
+	}
+	wrapped(w, "  ", "Footprints are measured disk usage, not guaranteed net savings; recovery backups and shared files affect reclaimed space.")
 	if len(p.Warnings) > 0 {
 		wrapped(styled(w, toneWarning), "! ", "Partial report or scan warnings. This is not a whole-disk inventory.")
 	}
@@ -220,6 +242,7 @@ func renderPlan(w io.Writer, p disk.Plan, details bool) {
 		wrapped(styled(w, toneWarning), "! ", warning)
 	}
 	fmt.Fprintln(w, "\nNothing committed, pushed or deleted.")
+	fmt.Fprintln(w, "Next checkpointed batch: infinite-disk scan --agent --batch-size 100")
 	fmt.Fprintln(w, "Resolve blockers: infinite-disk analyze --filter needs-analysis")
 	fmt.Fprintln(w, "Compact automation contract: infinite-disk actions --json")
 	fmt.Fprintln(w, "Build/dependency cleanup: infinite-disk caches scan")

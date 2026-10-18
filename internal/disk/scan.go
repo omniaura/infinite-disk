@@ -22,13 +22,31 @@ type Activity struct {
 	Known bool
 }
 type Engine struct {
-	Config           Config
-	Activity         func(context.Context) Activity
-	Now              func() time.Time
-	Sessions         func(context.Context) SessionInventory
-	claudeRunner     func(context.Context, ClaudeHandoff) error // Fixture-only substitution for native CLI.
-	allowLocalRemote bool                                       // Fixture tests only; never configurable by CLI or Pi.
-	scanAfter        string                                     // Private discovery cursor; never changes approval scope.
+	Config            Config
+	Activity          func(context.Context) Activity
+	Now               func() time.Time
+	Sessions          func(context.Context) SessionInventory
+	claudeRunner      func(context.Context, ClaudeHandoff) error // Fixture-only substitution for native CLI.
+	allowLocalRemote  bool                                       // Fixture tests only; never configurable by CLI or Pi.
+	scanAfter         string                                     // Private discovery cursor; never changes approval scope.
+	Progress          func(ScanProgress)                         // Counts/phases only; never source or credentials.
+	ScanLimit         int                                        // Report batch size, not approval scope; zero uses configuration.
+	RefreshDiscovery  bool
+	SkipProjects      map[string]bool // Invocation-local rolling coverage, never approval.
+	discovery         []string
+	discoveredAt      time.Time
+	discoveryComplete bool
+}
+
+type ScanProgress struct {
+	Phase               string
+	Checked, Discovered int
+}
+
+func (e *Engine) progress(phase string, checked, discovered int) {
+	if e.Progress != nil {
+		e.Progress(ScanProgress{phase, checked, discovered})
+	}
 }
 
 func NewEngine(c Config) *Engine { return &Engine{Config: c, Activity: ReadActivity, Now: time.Now} }
@@ -193,6 +211,27 @@ func (e *Engine) inspectSource(ctx context.Context, path string, activity Activi
 	if shallow, err := gitText(ctx, path, "rev-parse", "--is-shallow-repository"); err != nil || shallow != "false" {
 		block(&c, "shallow_repository_requires_manual_preservation")
 	}
+	// Standalone clones need a self-contained bundle before their Git database
+	// is deleted. Linked worktrees keep the already-validated common database;
+	// they must not be blocked just because that surviving database is filtered.
+	if c.Kind == "clone" {
+		// Deleting this database would also destroy indexes/metadata for other
+		// linked checkouts, including staged work not reachable from Git refs.
+		if entries, err := os.ReadDir(filepath.Join(common, "worktrees")); len(entries) > 0 || err != nil && !errors.Is(err, os.ErrNotExist) {
+			block(&c, "shared_git_database_has_worktrees")
+		}
+		if _, err := gitText(ctx, path, "config", "--local", "--name-only", "--get-regexp", `^(extensions\.partialclone|remote\..*\.(promisor|partialclonefilter))$`); err == nil {
+			block(&c, "partial_clone_requires_materialized_recovery")
+		}
+		if entries, err := os.ReadDir(filepath.Join(common, "objects", "pack")); err == nil {
+			for _, entry := range entries {
+				if strings.HasSuffix(entry.Name(), ".promisor") {
+					block(&c, "partial_clone_requires_materialized_recovery")
+					break
+				}
+			}
+		}
+	}
 	for _, special := range []string{"lfs", "annex", "objects/info/alternates", "index.lock", "shallow.lock"} {
 		if _, err := os.Lstat(filepath.Join(common, special)); err == nil {
 			block(&c, "special_or_locked_git_storage_requires_manual_preservation")
@@ -330,55 +369,33 @@ func (e *Engine) Scan(ctx context.Context) (Plan, error) {
 	if err != nil {
 		return p, errors.New("cannot read free disk space")
 	}
+	e.progress("Checking running processes and coding-session links", 0, 0)
 	activity := e.Activity(ctx)
 	sessions := e.SessionInventory(ctx)
 	p.SessionWarnings = sessions.Warnings
 	home, _ := os.UserHomeDir()
 	p.Locations, _ = Locations(e.Config, home, false)
-	seen := map[string]bool{}
-	var discovered []string
-	p.DiscoveryComplete = true
-	for _, configured := range minimalRoots(e.Config.Roots) {
-		root, err := filepath.EvalSymlinks(configured)
-		if err != nil {
-			p.Warnings = append(p.Warnings, "A configured discovery root is unavailable")
-			p.DiscoveryComplete = false
-			continue
-		}
-		err = filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			if walkErr != nil {
-				p.Warnings = append(p.Warnings, "A directory could not be inspected")
-				p.DiscoveryComplete = false
-				return filepath.SkipDir
-			}
-			if !d.IsDir() {
-				return nil
-			}
-			if path != root && skipDirs[d.Name()] {
-				return filepath.SkipDir
-			}
-			rel, _ := filepath.Rel(root, path)
-			if strings.Count(rel, string(filepath.Separator)) >= e.Config.MaxDepth {
-				return filepath.SkipDir
-			}
-			if _, err := os.Lstat(filepath.Join(path, ".git")); err == nil && path != root && !seen[path] {
-				if len(discovered) >= 10000 {
-					return errors.New("discovery limit reached")
-				}
-				seen[path] = true
-				discovered = append(discovered, path)
-			}
-			return nil
-		})
-		if err != nil {
-			p.Warnings = append(p.Warnings, "Discovery stopped at its time or 10000-project budget")
-			p.DiscoveryComplete = false
-			break
+	// Discovery must not consume the inspection budget. Breadth-first traversal
+	// starts every root before descending through a large early repository.
+	discovered, complete := e.discovery, e.discoveryComplete
+	var warnings []string
+	if e.RefreshDiscovery || (!complete && len(discovered) == 0) || e.discoveredAt.IsZero() || e.Now().Sub(e.discoveredAt) < 0 || e.Now().Sub(e.discoveredAt) >= 15*time.Minute {
+		e.progress("Discovering project folders (up to 45 seconds)", 0, 0)
+		discoveryCtx, stopDiscovery := context.WithTimeout(ctx, 45*time.Second)
+		discovered, complete, warnings = discoverProjects(discoveryCtx, e.Config.Roots, e.Config.MaxDepth, os.ReadDir)
+		stopDiscovery()
+		e.discovery, e.discoveryComplete, e.discoveredAt = discovered, complete, e.Now().UTC()
+	} else {
+		p.DiscoveryCached = true
+		e.progress("Reusing recent discovery index; rechecking each selected project", 0, len(discovered))
+		if !complete {
+			warnings = append(warnings, "Reusing a partial discovery index; more project folders may remain undiscovered. Use scan --refresh to refresh discovery.")
 		}
 	}
+	discoveredAt := e.discoveredAt
+	p.DiscoveredAt = &discoveredAt
+	p.DiscoveryComplete = complete
+	p.Warnings = append(p.Warnings, warnings...)
 	p.DiscoveredProjects = len(discovered)
 	// Discover first, then inspect a rotating bounded window. A large early
 	// root cannot permanently starve every later root on periodic audits.
@@ -390,16 +407,30 @@ func (e *Engine) Scan(ctx context.Context) (Plan, error) {
 	if start >= len(discovered) {
 		start = 0
 	}
+	limit := e.Config.MaxProjects
+	if e.ScanLimit > 0 {
+		limit = min(limit, e.ScanLimit)
+	}
 	for i := 0; i < len(discovered); i++ {
-		if ctx.Err() != nil || len(p.Candidates) >= e.Config.MaxProjects {
+		if ctx.Err() != nil || len(p.Candidates) >= limit {
 			p.Warnings = append(p.Warnings, "Partial inspection; the next audit resumes after this window")
 			break
 		}
 		path := discovered[(start+i)%len(discovered)]
-		candidate := e.inspectSource(ctx, path, activity)
-		attachSessionsContext(ctx, &candidate, sessions)
-		e.prepareClaudeHandoffs(ctx, &candidate, activity)
-		candidate.Analysis = e.analyzeCandidate(ctx, candidate)
+		if e.SkipProjects[path] {
+			continue
+		}
+		e.progress("Inspecting source, recovery prerequisites and sizes", len(p.Candidates), len(discovered))
+		projectCtx, stopProject := context.WithTimeout(ctx, 15*time.Second)
+		candidate := e.inspectSource(projectCtx, path, activity)
+		attachSessionsContext(projectCtx, &candidate, sessions)
+		e.prepareClaudeHandoffs(projectCtx, &candidate, activity)
+		candidate.Analysis = e.analyzeCandidate(projectCtx, candidate)
+		if projectCtx.Err() != nil {
+			block(&candidate, "project_inspection_incomplete")
+			candidate.Evidence = append(candidate.Evidence, Evidence{"inspection", "incomplete", "Per-project time budget reached; not cleanup-ready"})
+		}
+		stopProject()
 		p.Candidates = append(p.Candidates, candidate)
 		e.scanAfter = path
 	}
@@ -413,7 +444,59 @@ func (e *Engine) Scan(ctx context.Context) (Plan, error) {
 		return strings.Compare(a.ID, b.ID)
 	})
 	p.ID = planID(p)
+	e.progress("Inspection complete; saving report", len(p.Candidates), len(discovered))
 	return p, nil
+}
+
+// readDir is supplied explicitly so tests can exercise a slow filesystem without
+// walking user directories. Symlinks are never enqueued; only canonical roots
+// and actual child directories are visited. Safety checks still run at inspect/apply.
+func discoverProjects(ctx context.Context, roots []string, maxDepth int, readDir func(string) ([]os.DirEntry, error)) ([]string, bool, []string) {
+	type directory struct {
+		path  string
+		depth int
+	}
+	var queue []directory
+	var found []string
+	var warnings []string
+	complete := true
+	for _, configured := range minimalRoots(roots) {
+		root, err := filepath.EvalSymlinks(configured)
+		if err != nil {
+			complete = false
+			warnings = append(warnings, "A configured discovery root is unavailable")
+			continue
+		}
+		queue = append(queue, directory{root, -1})
+	}
+	seen := map[string]bool{}
+	for next := 0; next < len(queue); next++ {
+		if ctx.Err() != nil || len(found) >= 10000 {
+			return found, false, append(warnings, "Discovery stopped at its 45-second or 10000-project budget; inspection uses the remaining scan time")
+		}
+		dir := queue[next]
+		if dir.depth >= maxDepth {
+			continue
+		}
+		entries, err := readDir(dir.path)
+		if err != nil {
+			complete = false
+			warnings = append(warnings, "A directory could not be inspected")
+			continue
+		}
+		// Inspect the directory entry itself instead of stat-ing .git in every
+		// folder. Most source folders are not repositories.
+		for _, entry := range entries {
+			if entry.Name() == ".git" && dir.depth >= 0 && !seen[dir.path] {
+				seen[dir.path] = true
+				found = append(found, dir.path)
+			}
+			if entry.IsDir() && !skipDirs[entry.Name()] && dir.depth+1 < maxDepth {
+				queue = append(queue, directory{filepath.Join(dir.path, entry.Name()), dir.depth + 1})
+			}
+		}
+	}
+	return found, complete, warnings
 }
 
 func planID(p Plan) string {

@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
-import {TOOL_NAMES,SYSTEM_PROMPT,validateInventory,createInventoryTools,validateRecommendations,validateSuggestionEvidence,providerSettings,triage} from "../bridge.mjs";
+import {TOOL_NAMES,SYSTEM_PROMPT,validateInventory,createInventoryTools,validateRecommendations,validateSuggestionEvidence,constrainSuggestionEvidence,providerSettings,triage} from "../bridge.mjs";
 
-const candidate={id:"abcdef0123456789",eligible:true,age_days:30,size_bytes:5*2**30,dirty_files:2,blockers:[]};
+const candidate={id:"abcdef0123456789",eligible:true,age_days:30,size_bytes:5*2**30,size_complete:true,dirty_files:2,blockers:[]};
 test("Ditto provider accepts only explicit first-party routing",()=>{
  const input={provider:"ditto",model:"gm/gpt-6-luna",base_url:"https://router.heyditto.ai/v1"};
  const selected=providerSettings(input);assert.equal(selected.env,"DITTO_INFERENCE_API_KEY");assert.equal(selected.registration.models[0].id,input.model);
@@ -22,7 +22,7 @@ test("real Pi runtime uses Ditto tool-call wire format without external tools or
  };
  try {
   const result=await triage({version:1,provider:"ditto",base_url:"https://router.heyditto.ai/v1",model:"gm/gpt-6-luna",candidates:[{...candidate,path:"private-path",source:"private-source"}]},{apiKey:"ditto_inf_fixture_not_real"});
-  assert.equal(result.requests,2);assert.equal(result.recommendations.length,1);assert.ok(result.steps.some(x=>x.check==='inventory_summary'));
+  assert.equal(result.requests,2);assert.equal(result.recommendations.length,1);assert.ok(result.steps.some(x=>x.check==='inventory_summary'));assert.deepEqual(calls[0].body.tool_choice,{type:'function',function:{name:'inventory_summary'}});
   for(const call of calls){assert.equal(call.url,"https://router.heyditto.ai/v1/chat/completions");assert.equal(call.headers.get('authorization'),'Bearer ditto_inf_fixture_not_real');assert.equal(call.body.model,'gm/gpt-6-luna');assert.deepEqual(call.body.tools.map(x=>x.function.name),TOOL_NAMES);assert.equal(call.body.max_completion_tokens,4096);assert.ok(!JSON.stringify(call.body).includes('private-path'));assert.ok(!JSON.stringify(call.body).includes('private-source'));}
  } finally {globalThis.fetch=original;}
 });
@@ -55,6 +55,19 @@ test("final proposed actions need actual suggestion-tool evidence",()=>{
  assert.throws(()=>validateSuggestionEvidence([r],[c],[]));
  assert.throws(()=>validateSuggestionEvidence([r],[c],[{check:"suggest_action",detail:c.id+":keep"}]));
  validateSuggestionEvidence([r],[c],[{check:"suggest_action",detail:c.id+":preserve_source"}]);
+});
+test("discard unrecorded suggestions without inventing evidence or relaxing allowed-action validation",()=>{
+ const c={...candidate,analysis:{available_suggestions:["preserve_source","resolve_blockers"]}};
+ const raw={candidate_id:c.id,priority:1,decision:"review",reason:"Fixture",proposed_steps:[],suggested_actions:["preserve_source","resolve_blockers"]};
+ const steps=[{check:"suggest_action",outcome:"performed",detail:c.id+":preserve_source"}];
+ const validated=validateRecommendations({recommendations:[raw]},[c]);
+ const result=constrainSuggestionEvidence(validated,steps);
+ assert.deepEqual(result.recommendations[0].suggested_actions,["preserve_source"]);
+ assert.deepEqual(result.warnings,["omitted_unrecorded_suggestions"]);
+ assert.equal(steps.length,1);assert.equal(raw.suggested_actions.length,2);
+ validateSuggestionEvidence(result.recommendations,[c],steps);
+ assert.throws(()=>validateRecommendations({recommendations:[{...raw,suggested_actions:["delete_without_approval"]}]},[c]));
+ assert.throws(()=>validateSuggestionEvidence(result.recommendations,[c],[]));
 });
 test("invalid or excessive inventories fail closed",()=>{
  for(const input of [{version:2,candidates:[]},{version:1,candidates:Array(201).fill(candidate)},{version:1,candidates:[{...candidate,id:"../bad"}]},{version:1,candidates:[{...candidate,size_bytes:-1}]}])assert.throws(()=>validateInventory(input));

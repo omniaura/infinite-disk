@@ -38,6 +38,7 @@ If suggestions are offered, record at least one by the third request. Inventory 
 Analyze needs-analysis projects instead of merely restating their blockers. Evidence includes checked source status,
 ignored-data categories, session blockers, and HEAD commits absent from LOCAL origin-tracking refs (not live push proof).
 Missing checks or zero age with source_checked=false mean unknown, never clean or stale.
+size_complete=false means size is unknown, not zero bytes or known savings.
 If any project offers available_suggestions, you MUST call suggest_action at least once before your final answer.
 Before listing a kind in suggested_actions, call suggest_action for that exact project and kind. Only list recorded suggestions.
 This records a suggestion, NOT an approval or execution.
@@ -47,6 +48,7 @@ Private data needs a private backup, never a blanket git add/push. Unsupported n
 Recommend review of old, eligible, space-consuming projects, and keep or block in-use/recent/unsafe projects.
 No project is deleted by your decision. Never claim any preservation, deletion, approval, or external action occurred.
 Return only JSON: {"recommendations":[{"candidate_id":"opaque ID","priority":1,"decision":"review|keep|blocked|analyze","reason":"brief evidence-based reason","proposed_steps":["future step, not performed"],"suggested_actions":["offered action kind"]}]}.
+Give at most three recommendations, biggest useful opportunities first. Keep each reason to one sentence and proposed_steps to at most two brief steps. Do not exhaust the output budget listing every project.
 Use only IDs returned by tools. Ineligible projects must remain blocked or analyze, never review/keep as cleanup approval. Do not invent amounts or repository facts.`;
 
 export function validateInventory(input) {
@@ -58,7 +60,7 @@ export function validateInventory(input) {
         item.blockers.some((b) => typeof b !== "string" || b.length > 160)) throw new Error("Invalid candidate metadata");
     // Explicit projection: never transmit paths, names, source, branches, remotes, or arbitrary extra fields.
     const clean={id:item.id, eligible:item.eligible, age_days:Math.max(0,Math.floor(item.age_days)),
-      size_bytes:item.size_bytes, dirty_files:item.dirty_files, blockers:item.blockers};
+      size_bytes:item.size_bytes, size_complete:item.size_complete===true, dirty_files:item.dirty_files, blockers:item.blockers};
     if(item.analysis){
       const a=item.analysis;
       if(typeof a.source_checked!=="boolean" || typeof a.ignored_complete!=="boolean" || !Number.isSafeInteger(a.ignored_count) || a.ignored_count<0 ||
@@ -108,6 +110,18 @@ export function validateSuggestionEvidence(recommendations,candidates,steps) {
   }
 }
 
+// Unrecorded model suggestions are not evidence. Discard them rather than
+// inventing tool calls or losing every otherwise valid advisory in the batch.
+// Unknown actions/IDs/unsafe recommendations are still rejected before this.
+export function constrainSuggestionEvidence(recommendations,steps) {
+  let omitted=0;
+  const constrained=recommendations.map(r=>({...r,suggested_actions:(r.suggested_actions??[]).filter(kind=>{
+    const recorded=steps.some(s=>s.check==="suggest_action"&&s.outcome==="performed"&&s.detail===r.candidate_id+":"+kind);
+    if(!recorded)omitted++;return recorded;
+  })}));
+  return {recommendations:constrained,warnings:omitted?["omitted_unrecorded_suggestions"]:[]};
+}
+
 export async function triage(input, options = {}) {
   const candidates=validateInventory(input);
   const settingsProvider=providerSettings(input);
@@ -141,24 +155,29 @@ export async function triage(input, options = {}) {
       // Keep the existing four-request cost ceiling, but reserve its final
       // request for an answer rather than another optional tool round.
       const final=requests===4;
-      const mustSuggest=requests===3 && candidates.some(c=>c.analysis?.available_suggestions.length) && !steps.some(s=>s.check==="suggest_action");
+      const mustSuggest=requests>=2 && candidates.some(c=>c.analysis?.available_suggestions.length) && !steps.some(s=>s.check==="suggest_action");
       const finalContext=final?{...context,systemPrompt:context.systemPrompt+"\nThis is the final request. Return the recommendation JSON now using only recorded evidence. No further tools are available."}:context;
-      const choice=final?{toolChoice:"none"}:mustSuggest?{toolChoice:{type:"function",function:{name:"suggest_action"}}}:{};
+      const choice=final?{toolChoice:"none"}:requests===1?{toolChoice:{type:"function",function:{name:"inventory_summary"}}}:mustSuggest?{toolChoice:{type:"function",function:{name:"suggest_action"}}}:{};
       return stream(model,finalContext,{...streamOptions,maxTokens:4096,...choice});
     };
     session.subscribe((event)=>{
       if(event.type==="tool_execution_start"&&event.toolName==="inspect_project"&&++inspectCount>2)void session.abort();
     });
-    timer=setTimeout(()=>{void session.abort();},60_000);
+    timer=setTimeout(()=>{stage="time_budget";void session.abort();},60_000);
     stage="provider_run";
     await session.prompt("Inspect the inventory with your read-only tools and return the recommendation JSON. Do not perform any filesystem or Git action.",{expandPromptTemplates:false});
-    stage="response_validation";
+    if(stage==="time_budget")throw new Error("Agent time budget exceeded");
+    stage="inventory_evidence";
     if(!steps.some((s)=>s.check==="inventory_summary"))throw new Error("Agent did not inspect the inventory");
     const text=session.getLastAssistantText() ?? "";
+    stage="response_json";
     const decoded=JSON.parse(text.replace(/^```(?:json)?\s*/i,"").replace(/\s*```$/, ""));
-    const recommendations=validateRecommendations(decoded,candidates);
+    stage="recommendation_validation";
+    const constrained=constrainSuggestionEvidence(validateRecommendations(decoded,candidates),steps);
+    const {recommendations,warnings}=constrained;
+    stage="suggestion_evidence";
     validateSuggestionEvidence(recommendations,candidates,steps);
-    return {version:1,recommendations,steps,requests,capabilities:[...TOOL_NAMES]};
+    return {version:1,recommendations,steps,requests,capabilities:[...TOOL_NAMES],warnings};
   } catch {
     throw new Error(`Pi triage failed at ${stage}; no raw provider details retained`);
   } finally {
@@ -170,4 +189,8 @@ async function main(){
   let raw="";for await(const chunk of process.stdin){raw+=chunk;if(Buffer.byteLength(raw)>1_000_000)throw new Error("Inventory exceeded input budget");}
   const output=await triage(JSON.parse(raw));process.stdout.write(JSON.stringify(output)+"\n");
 }
-if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){main().catch(()=>{process.stderr.write("Pi triage failed; no raw provider error or credentials were logged.\n");process.exitCode=1;});}
+if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){main().catch((error)=>{
+ process.stderr.write("Pi triage failed; no raw provider error or credentials were logged.\n");
+ const stage=/^Pi triage failed at ([a-z_]+);/.exec(error?.message??"")?.[1];
+ process.exitCode=({provider_run:69,time_budget:75,inventory_evidence:81,response_json:82,recommendation_validation:83,suggestion_evidence:84})[stage]??70;
+});}

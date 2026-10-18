@@ -65,6 +65,8 @@ type Plan struct {
 	Version            int              `json:"version"`
 	ID                 string           `json:"id"`
 	CreatedAt          time.Time        `json:"created_at"`
+	DiscoveredAt       *time.Time       `json:"discovered_at,omitempty"`
+	DiscoveryCached    bool             `json:"discovery_cached,omitempty"`
 	Mode               string           `json:"mode"`
 	ConfigDigest       string           `json:"config_digest"`
 	Space              Space            `json:"space"`

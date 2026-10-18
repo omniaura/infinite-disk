@@ -185,11 +185,16 @@ func (e *Engine) RunReport(ctx context.Context) (Plan, error) {
 		return Plan{}, err
 	}
 	defer release()
+	// The on-disk checkpoint is authoritative across separate CLI processes.
+	e.discovery, e.discoveredAt, e.discoveryComplete = nil, time.Time{}, false
 	cursorFile := filepath.Join(e.Config.StateDir, "discovery-cursor.json")
 	var cursor struct {
-		Version      int    `json:"version"`
-		ConfigDigest string `json:"config_digest"`
-		LastPath     string `json:"last_path"`
+		Version      int       `json:"version"`
+		ConfigDigest string    `json:"config_digest"`
+		LastPath     string    `json:"last_path"`
+		Projects     []string  `json:"projects,omitempty"`
+		DiscoveredAt time.Time `json:"discovered_at,omitempty"`
+		Complete     bool      `json:"complete,omitempty"`
 	}
 	if b, readErr := os.ReadFile(cursorFile); readErr == nil {
 		if json.Unmarshal(b, &cursor) != nil {
@@ -197,8 +202,40 @@ func (e *Engine) RunReport(ctx context.Context) (Plan, error) {
 		}
 		if cursor.Version == ProtocolVersion && cursor.ConfigDigest == ConfigDigest(e.Config) {
 			e.scanAfter = cursor.LastPath
+			if len(cursor.Projects) <= 10000 && (cursor.Complete || len(cursor.Projects) > 0) && !cursor.DiscoveredAt.IsZero() && e.Now().Sub(cursor.DiscoveredAt) >= 0 && e.Now().Sub(cursor.DiscoveredAt) < 15*time.Minute {
+				valid := true
+				seen := map[string]bool{}
+				var canonicalRoots []string
+				for _, root := range e.Config.Roots {
+					if canonical, err := filepath.EvalSymlinks(root); err == nil {
+						canonicalRoots = append(canonicalRoots, canonical)
+					}
+				}
+				for _, path := range cursor.Projects {
+					if !sessionPath(path) || seen[path] {
+						valid = false
+						break
+					}
+					seen[path] = true
+					inScope := false
+					for _, canonical := range canonicalRoots {
+						if path != canonical && within(canonical, path) {
+							inScope = true
+							break
+						}
+					}
+					if !inScope {
+						valid = false
+						break
+					}
+				}
+				if valid {
+					e.discovery, e.discoveredAt, e.discoveryComplete = cursor.Projects, cursor.DiscoveredAt, cursor.Complete
+				}
+			}
 		} else {
 			e.scanAfter = ""
+			e.discovery, e.discoveredAt, e.discoveryComplete = nil, time.Time{}, false
 		}
 	} else if !errors.Is(readErr, os.ErrNotExist) {
 		return Plan{}, readErr
@@ -214,6 +251,7 @@ func (e *Engine) RunReport(ctx context.Context) (Plan, error) {
 	cursor.Version = ProtocolVersion
 	cursor.ConfigDigest = ConfigDigest(e.Config)
 	cursor.LastPath = e.scanAfter
+	cursor.Projects, cursor.DiscoveredAt, cursor.Complete = e.discovery, e.discoveredAt, e.discoveryComplete
 	cursorBytes, _ := json.Marshal(cursor)
 	if err = atomicPrivate(cursorFile, cursorBytes); err != nil {
 		return p, err
