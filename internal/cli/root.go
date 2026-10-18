@@ -73,6 +73,7 @@ func New(version string) *cobra.Command {
 	}}
 	scan.Flags().BoolVar(&withAgent, "agent", false, "Use the bounded, metadata-only Pi worker (requires setup and configured inference credentials)")
 	root.AddCommand(scan)
+	root.AddCommand(globalCommand(load, &asJSON))
 	var planID string
 	var details bool
 	var reviewProject string

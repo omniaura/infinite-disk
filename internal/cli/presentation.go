@@ -57,6 +57,18 @@ func label(c disk.Candidate) string {
 }
 func blockerText(s string) string {
 	switch s {
+	case "global_cache_producer_running":
+		return "A build, package tool or language server can write this cache. Close its tools and rescan."
+	case "producer_check_unavailable", "mounted_images_unknown":
+		return "Could not verify running producers or mounted images; retain this target until checks succeed."
+	case "global_target_in_use", "installer_mounted":
+		return "This target is open or mounted. Close or eject it and rescan."
+	case "installer_recent":
+		return "Recently downloaded or changed; retain until the configured inactivity period has passed."
+	case "installer_format_unknown":
+		return "Not a recognized flat package or UDIF disk image; inspect manually."
+	case "global_tree_unverified_or_private":
+		return "This cache has private, unsafe or incompletely inspected entries; retain for review."
 	case "artifact_contains_private_names":
 		return "Artifact contains potentially private file names; inspect and privately back up before cleanup."
 	case "artifact_contains_nested_repository":

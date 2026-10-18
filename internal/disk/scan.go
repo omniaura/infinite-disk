@@ -28,7 +28,9 @@ type Engine struct {
 	Sessions         func(context.Context) SessionInventory
 	claudeRunner     func(context.Context, ClaudeHandoff) error // Fixture-only substitution for native CLI.
 	allowLocalRemote bool                                       // Fixture tests only; never configurable by CLI or Pi.
-	scanAfter        string                                     // Private discovery cursor; never changes approval scope.
+	globalHost       func() (globalHost, error)                 // Fixture-only host/probe injection; never configuration.
+	globalUse        func(context.Context) globalUse
+	scanAfter        string // Private discovery cursor; never changes approval scope.
 }
 
 func NewEngine(c Config) *Engine { return &Engine{Config: c, Activity: ReadActivity, Now: time.Now} }
