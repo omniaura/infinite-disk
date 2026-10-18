@@ -28,23 +28,25 @@ type Evidence struct {
 }
 
 type Candidate struct {
-	ID           string     `json:"id"`
-	Path         string     `json:"path"`
-	Name         string     `json:"name"`
-	Kind         string     `json:"kind"`
-	Head         string     `json:"head,omitempty"`
-	Branch       string     `json:"branch,omitempty"`
-	CommonDir    string     `json:"common_dir,omitempty"`
-	RemoteHost   string     `json:"remote_host,omitempty"`
-	RemoteDigest string     `json:"remote_digest,omitempty"`
-	SizeBytes    uint64     `json:"size_bytes"`
-	SizeComplete bool       `json:"size_complete"`
-	LastModified time.Time  `json:"last_modified"`
-	DirtyFiles   int        `json:"dirty_files"`
-	Fingerprint  string     `json:"fingerprint,omitempty"`
-	Eligible     bool       `json:"eligible"`
-	Blockers     []string   `json:"blockers"`
-	Evidence     []Evidence `json:"evidence"`
+	ID              string     `json:"id"`
+	Path            string     `json:"path"`
+	Name            string     `json:"name"`
+	Kind            string     `json:"kind"`
+	Head            string     `json:"head,omitempty"`
+	Branch          string     `json:"branch,omitempty"`
+	CommonDir       string     `json:"common_dir,omitempty"`
+	RemoteHost      string     `json:"remote_host,omitempty"`
+	RemoteDigest    string     `json:"remote_digest,omitempty"`
+	SizeBytes       uint64     `json:"size_bytes"`
+	SizeComplete    bool       `json:"size_complete"`
+	LastModified    time.Time  `json:"last_modified"`
+	DirtyFiles      int        `json:"dirty_files"`
+	Fingerprint     string     `json:"fingerprint,omitempty"`
+	Eligible        bool       `json:"eligible"`
+	Blockers        []string   `json:"blockers"`
+	Evidence        []Evidence `json:"evidence"`
+	Sessions        []Session  `json:"sessions,omitempty"`
+	SessionsChecked bool       `json:"sessions_checked,omitempty"`
 }
 
 type Space struct {
@@ -67,6 +69,7 @@ type Plan struct {
 	Locations          []Location       `json:"locations,omitempty"`
 	DiscoveredProjects int              `json:"discovered_projects,omitempty"`
 	DiscoveryComplete  bool             `json:"discovery_complete,omitempty"`
+	SessionWarnings    []string         `json:"session_warnings,omitempty"`
 }
 
 type Recommendation struct {

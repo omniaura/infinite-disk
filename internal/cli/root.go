@@ -138,6 +138,11 @@ func New(version string) *cobra.Command {
 				return errors.New("project ID is not in this plan")
 			}
 		}
+		for _, c := range p.Candidates {
+			if c.Eligible && !c.SessionsChecked && (project == "" || project == c.ID) {
+				return errors.New("saved report predates coding-session checks; run scan before approving checkout removal")
+			}
+		}
 		reader := bufio.NewReader(cmd.InOrStdin())
 		results := []disk.Receipt{}
 		for _, c := range p.Candidates {
@@ -207,6 +212,7 @@ func New(version string) *cobra.Command {
 	root.AddCommand(apply)
 	root.AddCommand(cacheCommand(load, &asJSON))
 	root.AddCommand(locationsCommand(load, &configPath, &asJSON))
+	root.AddCommand(sessionsCommand(load, &asJSON))
 	var restorePlan, restoreProject, restoreTo string
 	restore := &cobra.Command{Use: "restore", Short: "Restore approved work from a checksum-verified private bundle; never overwrite", RunE: func(cmd *cobra.Command, _ []string) error {
 		e, err := load()

@@ -64,7 +64,7 @@ func TestColorPolicy(t *testing.T) {
 
 func TestColoredRenderingPreservesTextAndWrapping(t *testing.T) {
 	p := disk.Plan{CreatedAt: time.Unix(0, 0), Candidates: []disk.Candidate{
-		{Path: "/projects/ready/backend", Eligible: true, SizeComplete: true, SizeBytes: 1 << 30, RemoteHost: "github.com"},
+		{Path: "/projects/ready/backend", Eligible: true, SessionsChecked: true, SizeComplete: true, SizeBytes: 1 << 30, RemoteHost: "github.com"},
 		{Path: "/projects/evil\x1b[2J/" + strings.Repeat("long", 25), Blockers: []string{"private_or_unknown_ignored_state"}},
 	}, Warnings: []string{"Fixture warning"}}
 	for name, render := range map[string]func(io.Writer){
@@ -107,7 +107,7 @@ func TestCLIColorsAndJSON(t *testing.T) {
 	if err := disk.SaveConfig(config, c); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := disk.SavePlan(c, disk.Plan{Version: 1, CreatedAt: time.Now(), ConfigDigest: disk.ConfigDigest(c), Candidates: []disk.Candidate{{ID: "aaaaaaaaaaaaaaaa", Path: filepath.Join(c.Roots[0], "fixture"), Eligible: true}}}); err != nil {
+	if _, err := disk.SavePlan(c, disk.Plan{Version: 1, CreatedAt: time.Now(), ConfigDigest: disk.ConfigDigest(c), Candidates: []disk.Candidate{{ID: "aaaaaaaaaaaaaaaa", Path: filepath.Join(c.Roots[0], "fixture"), Eligible: true, SessionsChecked: true}}}); err != nil {
 		t.Fatal(err)
 	}
 	for _, mode := range []string{"auto", "never", "always"} {

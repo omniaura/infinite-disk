@@ -33,7 +33,7 @@ func TestCtrlCExitsBlockedApproval(t *testing.T) {
 	if err = disk.SaveConfig(config, c); err != nil {
 		t.Fatal(err)
 	}
-	_, err = disk.SavePlan(c, disk.Plan{Version: 1, CreatedAt: time.Now(), ConfigDigest: disk.ConfigDigest(c), Candidates: []disk.Candidate{{ID: "aaaaaaaaaaaaaaaa", Path: filepath.Join(c.Roots[0], "fixture"), Eligible: true, RemoteHost: "github.com"}}})
+	_, err = disk.SavePlan(c, disk.Plan{Version: 1, CreatedAt: time.Now(), ConfigDigest: disk.ConfigDigest(c), Candidates: []disk.Candidate{{ID: "aaaaaaaaaaaaaaaa", Path: filepath.Join(c.Roots[0], "fixture"), Eligible: true, SessionsChecked: true, RemoteHost: "github.com"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
