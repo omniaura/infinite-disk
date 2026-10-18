@@ -234,6 +234,10 @@ func TestNativeClaudeOfflineCleanup(t *testing.T) {
 	p := plan(t, f)
 	eligible(t, p.Candidates[0])
 	head := runGit(t, primary, "rev-parse", "HEAD")
+	indexBefore, err := digestFile(filepath.Join(primary, ".git", "index"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	r, err := f.e.Apply(context.Background(), p, p.Candidates[0].ID, p.ID, true)
 	if err != nil {
 		t.Fatal(err, r.Steps)
@@ -246,6 +250,10 @@ func TestNativeClaudeOfflineCleanup(t *testing.T) {
 	}
 	if runGit(t, primary, "rev-parse", "HEAD") != head {
 		t.Fatal("primary changed")
+	}
+	indexAfter, err := digestFile(filepath.Join(primary, ".git", "index"))
+	if err != nil || indexBefore != indexAfter {
+		t.Fatal("native maintenance changed primary index", err)
 	}
 	if err := verifyOriginalPrefix(r.SessionHandoffs[0]); err != nil {
 		t.Fatal(err)
