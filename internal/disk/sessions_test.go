@@ -81,6 +81,29 @@ func TestSessionAssociationsDoNotIncludeEveryBroadParent(t *testing.T) {
 	}
 }
 
+func TestSessionLinksAndSavedReportsAreBounded(t *testing.T) {
+	c := Candidate{Path: "/fixture/checkout", Eligible: true}
+	inventory := SessionInventory{Complete: true}
+	for range 1000 {
+		inventory.Sessions = append(inventory.Sessions, Session{ID: "fixture", Checkout: c.Path})
+	}
+	attachSessions(&c, inventory)
+	if c.Eligible || c.SessionCount != 1000 || len(c.Sessions) != 8 {
+		t.Fatal("session evidence exceeded report budget", c.SessionCount, len(c.Sessions))
+	}
+	f := newFixture(t)
+	p := plan(t, f)
+	previous, _ := os.ReadFile(filepath.Join(f.e.Config.StateDir, "latest"))
+	p.Warnings = []string{strings.Repeat("x", 16<<20)}
+	if _, err := SavePlan(f.e.Config, p); err == nil {
+		t.Fatal("oversized report saved")
+	}
+	after, _ := os.ReadFile(filepath.Join(f.e.Config.StateDir, "latest"))
+	if string(previous) != string(after) {
+		t.Fatal("failed report replaced latest")
+	}
+}
+
 func TestOpaqueAndUnindexedStoresFailClosed(t *testing.T) {
 	for _, relative := range []string{".cursor/chats/fixture/store.db", ".pi/agent/sessions/fixture.jsonl", ".codex/sessions/fixture.jsonl", ".codex/state_6.sqlite", ".cursor/projects/fixture/agent-transcripts/session/fixture.jsonl"} {
 		t.Run(relative, func(t *testing.T) {

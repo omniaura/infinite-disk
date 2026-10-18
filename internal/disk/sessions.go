@@ -39,7 +39,7 @@ type SessionInventory struct {
 var sessionID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`)
 
 func sessionPath(path string) bool {
-	return filepath.IsAbs(path) && filepath.Clean(path) == path && !strings.ContainsAny(path, "\x00\r\n\x1b")
+	return len(path) <= 4096 && filepath.IsAbs(path) && filepath.Clean(path) == path && !strings.ContainsAny(path, "\x00\r\n\x1b")
 }
 
 // Claude and Cursor project namespaces are lossy encodings. They are useful
@@ -340,10 +340,13 @@ func (e *Engine) SessionInventory(ctx context.Context) SessionInventory {
 func attachSessions(c *Candidate, inventory SessionInventory) {
 	for _, session := range inventory.Sessions {
 		if session.Matches(c.Path) {
-			c.Sessions = append(c.Sessions, session)
+			c.SessionCount++
+			if len(c.Sessions) < 8 {
+				c.Sessions = append(c.Sessions, session)
+			}
 		}
 	}
-	if len(c.Sessions) > 0 {
+	if c.SessionCount > 0 {
 		block(c, "coding_sessions_require_native_handoff")
 	}
 	if !inventory.Complete {

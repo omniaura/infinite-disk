@@ -228,7 +228,8 @@ func renderSessionLinks(w io.Writer, c disk.Candidate, details bool) {
 	if len(c.Sessions) == 0 {
 		return
 	}
-	wrapped(styled(w, toneWarning), "    ", fmt.Sprintf("%d linked coding sessions; their history is not part of Git recovery.", len(c.Sessions)))
+	count := max(c.SessionCount, len(c.Sessions))
+	wrapped(styled(w, toneWarning), "    ", fmt.Sprintf("%d linked coding sessions; their history is not part of Git recovery.", count))
 	for i, s := range c.Sessions {
 		if !details && i >= 3 {
 			wrapped(w, "      ", "More sessions in review --details or sessions list --project PATH.")
@@ -243,5 +244,8 @@ func renderSessionLinks(w io.Writer, c disk.Candidate, details bool) {
 			wrapped(w, "        ", "Recorded checkout: "+s.Checkout)
 			wrapped(w, "        ", "Recorded history location: "+s.Store)
 		}
+	}
+	if details && count > len(c.Sessions) {
+		wrapped(w, "      ", "Session evidence is capped in this saved batch. Use sessions list --project PATH --details for the complete current index results.")
 	}
 }

@@ -89,7 +89,7 @@ For standalone clones, restore verifies the bundle checksum and checks out the r
 
 ## Session links and orphan recovery
 
-Git recovery preserves code, **not the coding conversation or its workspace binding**. Checkout scans now include local session IDs and storage paths in `review --details`. Associations include enclosing isolated worktree workspaces conservatively, not broad surviving parents like `~/code`. Linked sessions block checkout removal until native handoff is complete; incomplete/opaque session coverage also blocks removal. Old plans without session checks cannot be applied: rescan. This intentionally can reduce ready checkout savings to zero; the separate Kondo artifact flow keeps its existing checks and never deletes the checkout.
+Git recovery preserves code, **not the coding conversation or its workspace binding**. Checkout scans now include local session IDs and storage paths in `review --details` (up to eight evidence records per checkout, with the full count and a command to inspect all current index results). Associations include enclosing isolated worktree workspaces conservatively, not broad surviving parents like `~/code`. Linked sessions block checkout removal until native handoff is complete; incomplete/opaque session coverage also blocks removal. Old plans without session checks cannot be applied: rescan. This intentionally can reduce ready checkout savings to zero; the separate Kondo artifact flow keeps its existing checks and never deletes the checkout.
 
 ```sh
 infinite-disk sessions list --project /absolute/checkout --details

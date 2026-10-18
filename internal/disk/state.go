@@ -64,6 +64,9 @@ func SavePlan(c Config, p Plan) (Plan, error) {
 	if err != nil {
 		return p, err
 	}
+	if len(b) > 16<<20 {
+		return p, errors.New("report exceeds the private plan size limit; narrow discovery roots or project batch size")
+	}
 	if err = atomicPrivate(filepath.Join(c.StateDir, "plans", p.ID+".json"), b); err != nil {
 		return p, err
 	}

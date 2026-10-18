@@ -46,6 +46,7 @@ type Candidate struct {
 	Blockers        []string   `json:"blockers"`
 	Evidence        []Evidence `json:"evidence"`
 	Sessions        []Session  `json:"sessions,omitempty"`
+	SessionCount    int        `json:"session_count,omitempty"`
 	SessionsChecked bool       `json:"sessions_checked,omitempty"`
 }
 
