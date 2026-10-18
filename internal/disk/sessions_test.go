@@ -67,6 +67,20 @@ func TestReadSessionsMetadataOnlyAndConservativeNamespaces(t *testing.T) {
 
 func quoted(s string) string { b, _ := json.Marshal(s); return string(b) }
 
+func TestSessionAssociationsDoNotIncludeEveryBroadParent(t *testing.T) {
+	checkout := "/fixture/code/project/.claude/worktrees/task/workspaces/review/backend"
+	for _, parent := range []string{"/fixture/code", "/fixture/code/project"} {
+		if (Session{Checkout: parent}).Matches(checkout) || (Session{ProjectKey: projectKey(parent)}).Matches(checkout) {
+			t.Fatal("broad surviving parent associated with every child checkout", parent)
+		}
+	}
+	for _, parent := range []string{"/fixture/code/project/.claude/worktrees/task", "/fixture/code/project/.claude/worktrees/task/workspaces/review"} {
+		if !(Session{Checkout: parent}).Matches(checkout) {
+			t.Fatal("missed enclosing isolated workspace", parent)
+		}
+	}
+}
+
 func TestOpaqueAndUnindexedStoresFailClosed(t *testing.T) {
 	for _, relative := range []string{".cursor/chats/fixture/store.db", ".pi/agent/sessions/fixture.jsonl", ".codex/sessions/fixture.jsonl", ".codex/state_6.sqlite", ".cursor/projects/fixture/agent-transcripts/session/fixture.jsonl"} {
 		t.Run(relative, func(t *testing.T) {

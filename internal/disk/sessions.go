@@ -54,13 +54,29 @@ func projectKey(path string) string {
 }
 
 func (s Session) Matches(path string) bool {
-	if s.Checkout != "" && (within(path, s.Checkout) || within(s.Checkout, path)) {
+	if s.Checkout != "" && (within(path, s.Checkout) || enclosingWorktree(s.Checkout, path)) {
 		return true
 	}
 	if s.ProjectKey != "" {
 		key := strings.TrimLeft(projectKey(path), "-")
 		stored := strings.TrimLeft(s.ProjectKey, "-")
-		return stored == key || strings.HasPrefix(stored, key+"-") || strings.HasPrefix(key, stored+"-")
+		return stored == key || strings.HasPrefix(stored, key+"-")
+	}
+	return false
+}
+
+// A coding session may own an isolated stack worktree containing several Git
+// checkouts. Include that wrapper, but not every chat started in ~/code or the
+// primary repository. A surviving broad cwd is not itself orphaned by cleanup.
+func enclosingWorktree(workspace, checkout string) bool {
+	if !within(workspace, checkout) {
+		return false
+	}
+	parts := strings.Split(filepath.ToSlash(workspace), "/")
+	for i, part := range parts {
+		if (part == "worktrees" || part == ".worktrees" || part == "workspaces") && i+1 < len(parts) && parts[i+1] != "" {
+			return true
+		}
 	}
 	return false
 }
