@@ -713,13 +713,19 @@ func copyPrivateTree(ctx context.Context, src, dst string) error {
 	if err != nil || !os.SameFile(s, opened) {
 		return errors.New("private restore source replaced")
 	}
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_EXCL|os.O_WRONLY, s.Mode().Perm())
+	// Stage privately even when the archived file was group/world-writable.
+	// OpenFile applies the caller's umask, so restore the exact archived mode
+	// explicitly before hashing the completed staged copy.
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if err != nil {
 		return err
 	}
 	n, copyErr := io.Copy(out, privateContextReader{ctx, io.LimitReader(in, s.Size()+1)})
 	if copyErr == nil && n != s.Size() {
 		copyErr = errors.New("private restore source size changed")
+	}
+	if copyErr == nil {
+		copyErr = out.Chmod(s.Mode().Perm())
 	}
 	syncErr := out.Sync()
 	closeErr := out.Close()

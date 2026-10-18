@@ -84,6 +84,39 @@ func TestPrivateArchivePlanApplyRestoreAndSourceRecovery(t *testing.T) {
 	}
 	_ = p
 }
+
+func TestPrivateRestorePreservesArchivedFileModes(t *testing.T) {
+	f, _, a := privateFixture(t)
+	// Package-manager hook files can be 0666/0777. The process umask must not
+	// silently narrow the restored mode and break the byte-and-mode digest.
+	for _, mode := range []os.FileMode{0600, 0640, 0644, 0664, 0666, 0755, 0777} {
+		name := filepath.Join(f.repo, "local-data", mode.String())
+		write(t, name, "fixture private restore mode\n")
+		if err := os.Chmod(name, mode); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p := plan(t, f)
+	a, err := f.e.PlanPrivate(context.Background(), p, p.Candidates[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.e.ArchivePrivate(context.Background(), a.ID, a.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err = f.e.RestorePrivate(context.Background(), a.ID, a.ID); err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range a.Entries {
+		actual, err := privateTree(context.Background(), filepath.Join(f.repo, entry.Path))
+		if err != nil || actual.SHA256 != entry.SHA256 {
+			t.Fatal("restored bytes or permissions differ", entry.Path, err)
+		}
+	}
+	if err = f.e.RestorePrivate(context.Background(), a.ID, a.ID); err != nil {
+		t.Fatal("identical restoration must remain idempotent", err)
+	}
+}
 func TestPrivateArchiveRevalidation(t *testing.T) {
 	for _, kind := range []string{"no approval", "expired", "future", "source changed", "private changed", "new private root", "active", "unknown activity", "source symlink"} {
 		t.Run(kind, func(t *testing.T) {
