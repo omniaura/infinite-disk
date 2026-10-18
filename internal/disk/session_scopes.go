@@ -168,6 +168,10 @@ func readClosedSessionRows(ctx context.Context, file, query string) ([]sessionRo
 	if noSymlinkAncestors(file) != nil {
 		return nil, errors.New("unsafe closed database")
 	}
+	info, err := os.Lstat(file)
+	if err != nil || !info.Mode().IsRegular() {
+		return nil, errors.New("closed database is not a regular file")
+	}
 	activity := ReadActivity(ctx)
 	if !activity.Known || activity.Busy(file) {
 		return nil, errors.New("database may be active")

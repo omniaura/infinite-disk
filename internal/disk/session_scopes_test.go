@@ -97,6 +97,23 @@ func TestClaudeLongPathNamespace(t *testing.T) {
 	}
 }
 
+func TestClosedDatabaseRejectsSpecialFilesBeforeOpening(t *testing.T) {
+	if _, err := exec.LookPath("mkfifo"); err != nil {
+		t.Skip("mkfifo unavailable")
+	}
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(root, "store.db")
+	if err := exec.Command("mkfifo", file).Run(); err != nil {
+		t.Skip("FIFO fixtures unavailable")
+	}
+	if _, err := readClosedSessionRows(context.Background(), file, "SELECT 1"); err == nil {
+		t.Fatal("special store file accepted")
+	}
+}
+
 func TestNativeClaudeProofRequiresIdentityCWDAndZeroTurns(t *testing.T) {
 	h := ClaudeHandoff{Session: Session{ID: "fixture"}, Destination: "/fixture/primary"}
 	valid := `{"type":"system","subtype":"init","session_id":"fixture","cwd":"/fixture/primary","tools":[],"mcp_servers":[]}` + "\n" + `{"type":"result","subtype":"success","session_id":"fixture","is_error":false,"num_turns":0,"total_cost_usd":0,"duration_api_ms":0,"modelUsage":{}}` + "\n"
