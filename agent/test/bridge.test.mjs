@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 import {TOOL_NAMES,SYSTEM_PROMPT,validateInventory,createInventoryTools,validateRecommendations,validateSuggestionEvidence,providerSettings,triage} from "../bridge.mjs";
 
-const candidate={id:"abcdef0123456789",eligible:true,age_days:30,size_bytes:5*2**30,dirty_files:2,blockers:[]};
+const candidate={id:"abcdef0123456789",eligible:true,age_days:30,size_bytes:5*2**30,size_complete:true,dirty_files:2,blockers:[]};
 test("Ditto provider accepts only explicit first-party routing",()=>{
  const input={provider:"ditto",model:"gm/gpt-6-luna",base_url:"https://router.heyditto.ai/v1"};
  const selected=providerSettings(input);assert.equal(selected.env,"DITTO_INFERENCE_API_KEY");assert.equal(selected.registration.models[0].id,input.model);
@@ -22,7 +22,7 @@ test("real Pi runtime uses Ditto tool-call wire format without external tools or
  };
  try {
   const result=await triage({version:1,provider:"ditto",base_url:"https://router.heyditto.ai/v1",model:"gm/gpt-6-luna",candidates:[{...candidate,path:"private-path",source:"private-source"}]},{apiKey:"ditto_inf_fixture_not_real"});
-  assert.equal(result.requests,2);assert.equal(result.recommendations.length,1);assert.ok(result.steps.some(x=>x.check==='inventory_summary'));
+  assert.equal(result.requests,2);assert.equal(result.recommendations.length,1);assert.ok(result.steps.some(x=>x.check==='inventory_summary'));assert.deepEqual(calls[0].body.tool_choice,{type:'function',function:{name:'inventory_summary'}});
   for(const call of calls){assert.equal(call.url,"https://router.heyditto.ai/v1/chat/completions");assert.equal(call.headers.get('authorization'),'Bearer ditto_inf_fixture_not_real');assert.equal(call.body.model,'gm/gpt-6-luna');assert.deepEqual(call.body.tools.map(x=>x.function.name),TOOL_NAMES);assert.equal(call.body.max_completion_tokens,4096);assert.ok(!JSON.stringify(call.body).includes('private-path'));assert.ok(!JSON.stringify(call.body).includes('private-source'));}
  } finally {globalThis.fetch=original;}
 });

@@ -47,31 +47,81 @@ func New(version string) *cobra.Command {
 		return encoder.Encode(value)
 	}
 	var withAgent bool
+	var scanBatchSize, scanBatches int
+	var refreshDiscovery bool
 	scan := &cobra.Command{Use: "scan", Aliases: []string{"run"}, Short: "Report recommendations; never commit, push, or delete", RunE: func(cmd *cobra.Command, _ []string) error {
 		e, err := load()
 		if err != nil {
 			return err
 		}
-		if !asJSON {
-			fmt.Fprintln(cmd.ErrOrStderr(), "Scanning checkouts (report only). May take up to five minutes; Ctrl+C cancels.")
+		if scanBatchSize < 1 || scanBatchSize > 5000 || scanBatches < 1 || scanBatches > 20 {
+			return errors.New("--batch-size must be 1..5000 and --batches must be 1..20")
 		}
-		p, err := e.RunReport(cmd.Context())
-		if err != nil {
-			return err
+		e.ScanLimit, e.RefreshDiscovery = scanBatchSize, refreshDiscovery
+		e.SkipProjects = map[string]bool{}
+		emit := func(p disk.Plan) error {
+			if asJSON {
+				if scanBatches > 1 {
+					return json.NewEncoder(cmd.OutOrStdout()).Encode(p)
+				}
+				return print(cmd, p)
+			}
+			renderPlan(cmd.OutOrStdout(), p, false)
+			return nil
 		}
-		if withAgent {
-			p, err = e.Triage(cmd.Context(), p)
+		for batch := 1; batch <= scanBatches; batch++ {
+			if err := cmd.Context().Err(); err != nil {
+				return err
+			}
+			if !asJSON {
+				fmt.Fprintf(cmd.ErrOrStderr(), "Batch %d/%d: up to %d checkouts (configuration may cap this lower).\n", batch, scanBatches, scanBatchSize)
+				fmt.Fprintln(cmd.ErrOrStderr(), "Scanning checkouts (report only). May take up to five minutes; Ctrl+C cancels.")
+				lastPhase := ""
+				lastProgress := time.Time{}
+				e.Progress = func(p disk.ScanProgress) {
+					if p.Phase != lastPhase || time.Since(lastProgress) >= 5*time.Second {
+						fmt.Fprintf(cmd.ErrOrStderr(), "  %s", p.Phase)
+						if p.Discovered > 0 {
+							fmt.Fprintf(cmd.ErrOrStderr(), " (%d / %d checked)", p.Checked, p.Discovered)
+						}
+						fmt.Fprintln(cmd.ErrOrStderr())
+						lastPhase, lastProgress = p.Phase, time.Now()
+					}
+				}
+			}
+			p, err := e.RunReport(cmd.Context())
 			if err != nil {
 				return err
 			}
+			e.RefreshDiscovery = false
+			for _, c := range p.Candidates {
+				e.SkipProjects[c.Path] = true
+			}
+			if withAgent {
+				if !asJSON {
+					fmt.Fprintln(cmd.ErrOrStderr(), "  Asking Pi for advisory suggestions (up to 20 projects; nothing can be applied).")
+				}
+				p, err = e.Triage(cmd.Context(), p)
+				if err != nil {
+					// Return the usable deterministic report even when paid inference
+					// fails. Keep nonzero exit status and error on stderr for callers.
+					_ = emit(p)
+					return err
+				}
+			}
+			if err := emit(p); err != nil {
+				return err
+			}
+			if len(p.Candidates) == 0 || len(e.SkipProjects) >= p.DiscoveredProjects {
+				break
+			}
 		}
-		if asJSON {
-			return print(cmd, p)
-		}
-		renderPlan(cmd.OutOrStdout(), p, false)
 		return nil
 	}}
 	scan.Flags().BoolVar(&withAgent, "agent", false, "Use the bounded, metadata-only Pi worker (requires setup and configured inference credentials)")
+	scan.Flags().IntVar(&scanBatchSize, "batch-size", 100, "Projects to inspect per resumable batch (also capped by configuration)")
+	scan.Flags().IntVar(&scanBatches, "batches", 1, "Run 1..20 sequential report batches; --agent allows up to four paid requests per batch; --json streams JSON Lines")
+	scan.Flags().BoolVar(&refreshDiscovery, "refresh", false, "Refresh the project index now instead of reusing discovery from the last 15 minutes")
 	root.AddCommand(scan)
 	var planID string
 	var details bool
@@ -312,6 +362,7 @@ func New(version string) *cobra.Command {
 		return nil
 	}})
 	var triagePlan string
+	var triageProjects []string
 	triage := &cobra.Command{Use: "triage", Short: "Ask Pi to review a saved metadata-only inventory", RunE: func(cmd *cobra.Command, _ []string) error {
 		e, err := load()
 		if err != nil {
@@ -321,8 +372,33 @@ func New(version string) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		p, err = e.Triage(cmd.Context(), p)
+		var selected map[string]bool
+		if len(triageProjects) > 0 {
+			if len(triageProjects) > 20 {
+				return errors.New("select at most 20 projects per bounded Pi triage")
+			}
+			selected = map[string]bool{}
+			for _, id := range triageProjects {
+				found := false
+				for _, c := range p.Candidates {
+					if c.ID == id {
+						found = true
+						break
+					}
+				}
+				if !found {
+					return errors.New("project ID is not in this plan")
+				}
+				selected[id] = true
+			}
+		}
+		p, err = e.TriageSelected(cmd.Context(), p, selected)
 		if err != nil {
+			if asJSON {
+				_ = print(cmd, p)
+			} else {
+				renderPlan(cmd.OutOrStdout(), p, true)
+			}
 			return err
 		}
 		if asJSON {
@@ -332,6 +408,7 @@ func New(version string) *cobra.Command {
 		return nil
 	}}
 	triage.Flags().StringVar(&triagePlan, "plan", "latest", "Saved immutable plan ID")
+	triage.Flags().StringSliceVar(&triageProjects, "project", nil, "Advise these exact project IDs (repeatable or comma-separated, at most 20)")
 	root.AddCommand(triage)
 	var once bool
 	watch := &cobra.Command{Use: "watch", Short: "Check disk pressure and periodically save reports; NEVER apply plans", RunE: func(cmd *cobra.Command, _ []string) error {

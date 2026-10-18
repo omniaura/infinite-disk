@@ -31,9 +31,9 @@ continue to use `OPENROUTER_API_KEY`. Each explicit triage is limited to four mo
 requests, 4096 output tokens/request and 60 seconds; these are request bounds,
 not a dollar-spend guarantee. Pi's local custom-provider cost counters are not
 billing evidence; use the Router's receipts/usage for actual costs.
-The fourth request disables tool use so Pi can return its final advice. When
-offered suggestions have not yet been recorded, the third request is reserved
-for `suggest_action`. Advice still fails closed if required evidence is missing.
+The first request requires the inventory tool; when suggestions are offered,
+the next request requires `suggest_action`. The fourth request disables tools
+so Pi can return final advice. Advice fails closed if evidence is missing.
 
 **A developer-workspace steward that asks before it acts.** Go + Cobra for deterministic safety, Pi for optional read-only triage. Standalone first; designed for desktop integrations through versioned JSON.
 
@@ -53,6 +53,40 @@ infinite-disk review --details
 Repeat `--root` for multiple project-parent directories. With no roots supplied, discovery checks `~/code`, `~/projects`, and common agent worktree directories. This is discovery scope, **not blanket deletion permission**. Missing roots produce warnings. Source inactivity defaults to seven days; age alone never authorizes removal.
 
 ## Read a report
+
+### Rolling scan, triage, review, repeat
+
+```sh
+infinite-disk scan --agent --batch-size 100
+infinite-disk review
+# Continue from the checkpoint, without re-walking a fresh project index:
+infinite-disk scan --agent --batch-size 100
+# Or explicitly request three sequential batches, each published immediately:
+infinite-disk scan --agent --batch-size 100 --batches 3
+```
+
+Interactive `scan` defaults to 100 projects per batch (also capped by the
+configuration's `max_projects`). It saves an immutable report before AI triage.
+Separate invocations resume after the last inspected project. Complete discovery
+indexes are reused for 15 minutes; `scan --refresh` finds newly created folders
+immediately. Only discovery paths are cached: activity, sessions, source and
+recovery prerequisites are rechecked for each new batch and again before apply.
+Discovery gets at most 45 seconds of the five-minute scan; an individual project
+gets 15 seconds. Incomplete checks stay blocked, and partial coverage is explicit.
+
+Pi receives the largest **20** anonymized metadata records from each batch and
+returns at most eight concise recommendations. This is advisory coverage, not a
+claim that AI analyzed every inspected project. To advise particular saved
+projects: `infinite-disk triage --plan PLAN --project ID1,ID2` (at most 20).
+Each `--agent` batch permits at most four paid requests, 4096 output tokens per
+request and 60 seconds; `--batches 3` explicitly permits three such budgets.
+Multiple batches stop after one pass without repeating projects within that
+invocation. Ctrl+C cancels; no cleanup is performed. With `--json --batches N`
+where N > 1, each completed report is emitted as one JSON Line as soon as ready.
+If inference fails, the deterministic report is still printed and saved, with a
+nonzero exit status and a sanitized error on stderr; later batches do not run.
+Directory footprints are not net reclaim promises, and nested checkouts are
+deduplicated within summary groups.
 
 ### Include your coding apps
 

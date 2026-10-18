@@ -16,6 +16,10 @@ import (
 	worker "github.com/omniaura/infinite-disk/agent"
 )
 
+// Keep both the inventory and final response comfortably inside the fixed
+// four-request / 4096-output-token budget. More projects need an explicit triage.
+const agentProjectLimit = 20
+
 func SetupAgent(ctx context.Context, c Config) error {
 	if err := EnsureState(c); err != nil {
 		return err
@@ -57,13 +61,14 @@ func (e *Engine) triage(ctx context.Context, p Plan, selected map[string]bool) (
 		return p, errors.New("Pi worker is not installed; run agent setup")
 	}
 	type summary struct {
-		ID         string         `json:"id"`
-		Eligible   bool           `json:"eligible"`
-		AgeDays    int            `json:"age_days"`
-		SizeBytes  uint64         `json:"size_bytes"`
-		DirtyFiles int            `json:"dirty_files"`
-		Blockers   []string       `json:"blockers"`
-		Analysis   *agentAnalysis `json:"analysis,omitempty"`
+		ID           string         `json:"id"`
+		Eligible     bool           `json:"eligible"`
+		AgeDays      int            `json:"age_days"`
+		SizeBytes    uint64         `json:"size_bytes"`
+		SizeComplete bool           `json:"size_complete"`
+		DirtyFiles   int            `json:"dirty_files"`
+		Blockers     []string       `json:"blockers"`
+		Analysis     *agentAnalysis `json:"analysis,omitempty"`
 	}
 	items := []summary{}
 	candidates := append([]Candidate{}, p.Candidates...)
@@ -72,7 +77,7 @@ func (e *Engine) triage(ctx context.Context, p Plan, selected map[string]bool) (
 		if selected != nil && !selected[c.ID] {
 			continue
 		}
-		if len(items) >= 200 {
+		if len(items) >= agentProjectLimit {
 			break
 		}
 		var analysis *agentAnalysis
@@ -90,7 +95,7 @@ func (e *Engine) triage(ctx context.Context, p Plan, selected map[string]bool) (
 		if !c.LastModified.IsZero() {
 			age = max(0, int(e.Now().Sub(c.LastModified).Hours()/24))
 		}
-		items = append(items, summary{c.ID, c.Eligible, age, c.SizeBytes, c.DirtyFiles, c.Blockers, analysis})
+		items = append(items, summary{c.ID, c.Eligible, age, c.SizeBytes, c.SizeComplete, c.DirtyFiles, c.Blockers, analysis})
 	}
 	if len(items) == 0 {
 		return p, nil
@@ -116,7 +121,20 @@ func (e *Engine) triage(ctx context.Context, p Plan, selected map[string]bool) (
 	output := &cappedBuffer{limit: 1 << 20}
 	cmd.Stdout = output
 	if err := cmd.Run(); err != nil {
-		return p, errors.New("Pi triage failed or exceeded its budget; original report retained")
+		stage := "worker execution"
+		if ctx.Err() != nil {
+			stage = "time budget"
+		} else if exit, ok := err.(*exec.ExitError); ok {
+			switch exit.ExitCode() {
+			case 65:
+				stage = "response validation"
+			case 69:
+				stage = "provider request"
+			case 75:
+				stage = "agent time budget"
+			}
+		}
+		return p, errors.New("Pi triage failed at " + stage + "; original report retained. Retry a smaller set with triage --project ID")
 	}
 	var result struct {
 		Version         int              `json:"version"`
