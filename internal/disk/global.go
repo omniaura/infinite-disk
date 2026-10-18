@@ -447,30 +447,47 @@ func (e *Engine) ApplyGlobal(ctx context.Context, p Plan, id, approval string) (
 		}
 	}
 	r.Path = fresh.Path
-	r.BeforeSpace, _ = DiskSpace(filepath.Dir(fresh.Path))
+	r.BeforeSpace, err = DiskSpace(filepath.Dir(fresh.Path))
+	if err != nil {
+		return r, errors.New("cannot measure filesystem before global cleanup; retained")
+	}
 	if err = AppendEvent(e.Config, Event{Type: "global_removal_approved", PlanID: p.ID, CandidateID: id, Outcome: "approved"}); err != nil {
 		return r, err
 	}
 	guard := func() error {
-		if err := noSymlinkAncestors(fresh.Path); err != nil {
-			return err
+		checkRoot := func() (os.FileInfo, error) {
+			if err := noSymlinkAncestors(fresh.Path); err != nil {
+				return nil, err
+			}
+			info, err := os.Lstat(fresh.Path)
+			if err != nil || !globalOwned(info) || !os.SameFile(info, s.entries[0].info) {
+				return nil, errors.New("global root changed during cleanup")
+			}
+			return info, nil
 		}
-		info, err := os.Lstat(fresh.Path)
-		if err != nil || !globalOwned(info) || !os.SameFile(info, s.entries[0].info) {
-			return errors.New("global root changed during cleanup")
+		info, err := checkRoot()
+		if err != nil {
+			return err
 		}
 		if len(globalUseBlockers(fresh, info, e.readGlobalUse(ctx))) > 0 {
 			return errors.New("global producer or activity changed during cleanup")
 		}
+		if _, err = checkRoot(); err != nil {
+			return err
+		}
 		return ctx.Err()
 	}
 	removed, retained, removeErr := removeGlobalManifest(ctx, fresh, s, guard)
+	var spaceErr error
+	r.AfterSpace, spaceErr = DiskSpace(filepath.Dir(fresh.Path))
 	r.Result = "global_files_removed"
-	if removeErr != nil || retained > 0 {
+	if removeErr != nil || retained > 0 || spaceErr != nil {
 		r.Result = "global_removal_partial"
 	}
-	r.AfterSpace, _ = DiskSpace(filepath.Dir(fresh.Path))
 	r.Steps = []Evidence{{"manifest_removal", "performed", fmt.Sprintf("Approved files removed: %d; approved files retained: %d. Cache roots, directories and newly created files preserved.", removed, retained)}}
+	if spaceErr != nil {
+		r.Steps = append(r.Steps, Evidence{"disk_space", "unknown", "After-cleanup filesystem measurement unavailable"})
+	}
 	b, _ := marshalJSON(r)
 	if err = atomicPrivate(filepath.Join(e.GlobalConfig().StateDir, "receipts", p.ID+"-"+id+".json"), b); err != nil {
 		return r, err
@@ -478,8 +495,8 @@ func (e *Engine) ApplyGlobal(ctx context.Context, p Plan, id, approval string) (
 	if err = AppendEvent(e.Config, Event{Type: "global_files_removed", PlanID: p.ID, CandidateID: id, Outcome: r.Result}); err != nil {
 		return r, err
 	}
-	if removeErr != nil || retained > 0 {
-		return r, errors.New("some approved files changed or could not be removed; inspect receipt and rescan")
+	if removeErr != nil || retained > 0 || spaceErr != nil {
+		return r, errors.New("global cleanup incomplete or measurement unavailable; inspect receipt and rescan")
 	}
 	return r, nil
 }

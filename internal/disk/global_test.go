@@ -264,7 +264,7 @@ func TestGlobalRevalidationRejectsChangesAndExpiredApproval(t *testing.T) {
 }
 
 func TestGlobalManifestKeepsConcurrentNewAndRewrittenFiles(t *testing.T) {
-	for _, mutation := range []string{"new", "rewrite", "directory swap", "producer starts", "cancelled"} {
+	for _, mutation := range []string{"new", "rewrite", "directory swap", "root swap", "producer starts", "cancelled"} {
 		t.Run(mutation, func(t *testing.T) {
 			f := newGlobalFixture(t)
 			p := f.scan(t)
@@ -286,6 +286,11 @@ func TestGlobalManifestKeepsConcurrentNewAndRewrittenFiles(t *testing.T) {
 						f.use.processes = []string{"go"}
 					case "cancelled":
 						cancel()
+					case "root swap":
+						if err := os.Rename(f.cache, f.cache+"-saved"); err != nil {
+							t.Fatal(err)
+						}
+						write(t, filepath.Join(f.cache, "aa/compiled"), "new private data")
 					case "directory swap":
 						if err := os.Rename(filepath.Join(f.cache, "aa"), filepath.Join(f.host.home, "saved")); err != nil {
 							t.Fatal(err)
@@ -308,6 +313,10 @@ func TestGlobalManifestKeepsConcurrentNewAndRewrittenFiles(t *testing.T) {
 			}
 			exists(t, filepath.Join(outside, "compiled"))
 			exists(t, f.cache)
+			if mutation == "root swap" {
+				exists(t, filepath.Join(f.cache+"-saved", "aa/compiled"))
+				exists(t, filepath.Join(f.cache, "aa/compiled"))
+			}
 		})
 	}
 }
