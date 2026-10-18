@@ -103,8 +103,22 @@ func (e *Engine) removeWithClaudeHandoff(ctx context.Context, c Candidate, r *Re
 		return errors.New("linked sessions changed during handoff; checkout retained")
 	}
 	for i, s := range linked {
-		if s != c.Sessions[i] {
+		approved := c.Sessions[i]
+		if s.Provider != approved.Provider || s.ID != approved.ID || s.Store != approved.Store {
 			return errors.New("linked sessions changed during handoff; checkout retained")
+		}
+		// Only native-verified handoff may change cwd to its approved
+		// destination. History/hash checks above reject concurrent mutation.
+		if s.Checkout != approved.Checkout {
+			verified := false
+			for _, h := range r.SessionHandoffs {
+				if h.Session.ID == s.ID && h.Status == "native_verified" && s.Checkout == h.Destination {
+					verified = true
+				}
+			}
+			if !verified {
+				return errors.New("session cwd changed during handoff; checkout retained")
+			}
 		}
 	}
 	if _, statErr := os.Lstat(c.Path); !errors.Is(statErr, os.ErrNotExist) {

@@ -67,6 +67,79 @@ func TestReadSessionsMetadataOnlyAndConservativeNamespaces(t *testing.T) {
 
 func quoted(s string) string { b, _ := json.Marshal(s); return string(b) }
 
+func TestClaudeBindingOutsideNamespaceAndBeyondHeaderAndTail(t *testing.T) {
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	primary := filepath.Join(home, "project")
+	checkout := filepath.Join(primary, ".claude", "worktrees", "hook-created")
+	store := filepath.Join(home, ".claude", "projects", claudeProjectKey(primary), "fixture.jsonl")
+	pad := strings.Repeat(`{"type":"progress","data":"PRIVATE PADDING"}`+"\n", 150000)
+	binding := `{"type":"worktree-state","sessionId":"fixture","worktreeSession":{"worktreePath":` + quoted(checkout) + `}}` + "\n"
+	write(t, store, `{"type":"user","sessionId":"fixture","cwd":`+quoted(primary)+`,"message":{"role":"user","content":"PRIVATE PROMPT"}}`+"\n"+pad+binding+pad)
+	before, _ := digestFile(store)
+	inv := ReadSessions(context.Background(), home)
+	if !inv.Complete || len(inv.Sessions) != 1 || inv.Sessions[0].Checkout != checkout {
+		t.Fatal("missed binding outside native namespace", inv)
+	}
+	c := Candidate{Path: checkout, Eligible: true}
+	attachSessions(&c, inv)
+	if c.Eligible || c.SessionCount != 1 {
+		t.Fatal("hidden binding did not protect checkout", c)
+	}
+	after, _ := digestFile(store)
+	if before != after {
+		t.Fatal("inventory modified transcript")
+	}
+	serialized, _ := json.Marshal(inv)
+	if strings.Contains(string(serialized), "PRIVATE") {
+		t.Fatal("message content leaked")
+	}
+	// Native exit/relocation metadata supersedes the historical first cwd.
+	write(t, store, `{"type":"user","sessionId":"fixture","cwd":`+quoted(checkout)+`}`+"\n"+`{"type":"worktree-state","sessionId":"fixture","worktreeSession":null}`+"\n"+`{"type":"relocated","sessionId":"fixture","relocatedCwd":`+quoted(primary)+`}`+"\n")
+	inv = ReadSessions(context.Background(), home)
+	if !inv.Complete || inv.Sessions[0].Checkout != primary {
+		t.Fatal("historical cwd overrode native relocation", inv)
+	}
+	if !inv.Sessions[0].Matches(checkout) {
+		t.Fatal("historical references must remain conservatively associated")
+	}
+	write(t, store, `{"cwd":`+quoted(primary)+`}`+"\n"+`{"type":"worktree-state","sessionId":"fixture","worktreeSession":{"unknownNewField":"opaque"}}`+"\n")
+	if ReadSessions(context.Background(), home).Complete {
+		t.Fatal("unknown binding schema treated as complete")
+	}
+}
+
+func TestClaudeIncompleteOrUnknownRelocationCoverageFailsClosed(t *testing.T) {
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := filepath.Join(home, ".claude", "projects", "different-project", "fixture.jsonl")
+	write(t, store, `{"cwd":"/fixture/unknown-move"}`+"\n")
+	inv := ReadSessions(context.Background(), home)
+	if !inv.Complete || len(inv.Sessions) != 1 || inv.Sessions[0].Orphaned() || !inv.Sessions[0].Matches("/fixture/unknown-move") {
+		t.Fatal("uncertain current cwd must preserve candidate-scoped historical references, not invent an orphan", inv)
+	}
+	c := Candidate{Path: "/fixture/unknown-move", Eligible: true}
+	attachSessions(&c, inv)
+	if c.Eligible {
+		t.Fatal("uncertain linked relocation was allowed to delete checkout")
+	}
+	if err := os.Truncate(store, (512<<20)+1); err != nil {
+		t.Fatal(err)
+	}
+	if ReadSessions(context.Background(), home).Complete {
+		t.Fatal("oversized uninspected history treated as complete")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := readClaudeMetadataContext(ctx, store, "fixture", true); err == nil {
+		t.Fatal("cancelled association accepted")
+	}
+}
+
 func TestSessionAssociationsDoNotIncludeEveryBroadParent(t *testing.T) {
 	checkout := "/fixture/code/project/.claude/worktrees/task/workspaces/review/backend"
 	for _, parent := range []string{"/fixture/code", "/fixture/code/project"} {

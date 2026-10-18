@@ -1,11 +1,9 @@
 package disk
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"io/fs"
 	"net/url"
 	"os"
@@ -22,15 +20,16 @@ import (
 // Session discovery deliberately excludes titles, prompts, messages, and model
 // output. These records stay local and are never included in Pi's inventory.
 type Session struct {
-	Provider      string `json:"provider"`
-	ID            string `json:"id"`
-	Checkout      string `json:"checkout,omitempty"`
-	Store         string `json:"store"`
-	ProjectKey    string `json:"project_key,omitempty"`
-	Primary       string `json:"primary,omitempty"`
-	Source        string `json:"source,omitempty"`
-	Originator    string `json:"originator,omitempty"`
-	WorkspaceHash string `json:"workspace_hash,omitempty"`
+	Provider            string   `json:"provider"`
+	ID                  string   `json:"id"`
+	Checkout            string   `json:"checkout,omitempty"`
+	Store               string   `json:"store"`
+	ProjectKey          string   `json:"project_key,omitempty"`
+	Primary             string   `json:"primary,omitempty"`
+	Source              string   `json:"source,omitempty"`
+	Originator          string   `json:"originator,omitempty"`
+	WorkspaceHash       string   `json:"workspace_hash,omitempty"`
+	ReferencedCheckouts []string `json:"referenced_checkouts,omitempty"`
 }
 
 type SessionInventory struct {
@@ -78,6 +77,11 @@ func claudeProjectKey(path string) string {
 }
 
 func (s Session) Matches(path string) bool {
+	for _, cwd := range s.ReferencedCheckouts {
+		if within(path, cwd) || enclosingWorktree(cwd, path) {
+			return true
+		}
+	}
 	if s.WorkspaceHash != "" {
 		if s.WorkspaceHash == cursorHash(path) {
 			return true
@@ -126,7 +130,7 @@ func (s Session) Orphaned() bool {
 // ReadSessions reads bounded native metadata, never transcript text into the
 // report. A failed/unsupported store is explicit, not an empty session list.
 func ReadSessions(ctx context.Context, home string) SessionInventory {
-	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	result := SessionInventory{Sessions: []Session{}, Warnings: []string{}, Complete: true}
 	warn := func(provider string) {
@@ -179,32 +183,24 @@ func ReadSessions(ctx context.Context, home string) SessionInventory {
 			return errors.New("session transcript is not a regular file")
 		}
 		s := Session{Provider: "Claude Code", ID: id, Store: path, ProjectKey: filepath.Base(filepath.Dir(path))}
-		// A header is an advisory cwd, not proof the complete transcript never
-		// moved. The encoded native project namespace supplies an additional
-		// conservative match. Linked sessions always require native handoff.
-		file, err := os.Open(path)
+		metadata, err := readClaudeMetadataContext(ctx, path, id, true)
 		if err != nil {
 			return err
 		}
-		defer file.Close()
-		scanner := bufio.NewScanner(io.LimitReader(file, 256<<10))
-		scanner.Buffer(make([]byte, 4096), 256<<10)
-		for scanner.Scan() {
-			var header struct {
-				CWD string `json:"cwd"`
-			}
-			if json.Unmarshal(scanner.Bytes(), &header) == nil && sessionPath(header.CWD) {
-				s.Checkout = header.CWD
-				break
-			}
-		}
-		if scanner.Err() != nil {
-			warn("Claude Code header")
+		s.Checkout = metadata.CWD
+		s.ReferencedCheckouts = metadata.References
+		if metadata.Binding != "" {
+			s.Checkout = metadata.Binding
 		}
 		if s.Checkout != "" && projectKey(s.Checkout) != s.ProjectKey && claudeProjectKey(s.Checkout) != s.ProjectKey {
-			// The transcript may have moved natively. A historical header must
-			// not be presented as its current cwd or called an orphan.
-			s.Checkout = ""
+			if metadata.Binding == "" && !metadata.RelocatedSeen {
+				// A historical header isn't current cwd. An explicit cleared
+				// binding is safe; otherwise uncertain routing blocks removal.
+				s.Checkout = ""
+				// Keep all observed cwd values as conservative association
+				// scopes, without inventing a current cwd or an orphan. Full
+				// binding metadata was inspected, even outside this namespace.
+			}
 		}
 		result.Sessions = append(result.Sessions, s)
 		return nil
@@ -365,6 +361,16 @@ func (e *Engine) SessionInventory(ctx context.Context) SessionInventory {
 		return SessionInventory{Warnings: []string{"Coding-session home is unavailable"}}
 	}
 	result := ReadSessions(ctx, home)
+	for _, s := range result.Sessions {
+		if s.Provider != "Claude Code" {
+			continue
+		}
+		if _, _, err := nativeClaudeIdentity(ctx); err != nil {
+			result.Complete = false
+			result.Warnings = append(result.Warnings, "Claude routing metadata requires the tested native version; checkout removal is blocked")
+		}
+		break
+	}
 	for _, s := range result.Sessions {
 		if s.WorkspaceHash == "" {
 			continue
