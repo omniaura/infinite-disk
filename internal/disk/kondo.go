@@ -202,6 +202,13 @@ func (e *Engine) inspectCache(ctx context.Context, c Candidate, activity Activit
 			inspectionBlocker = "artifact_contains_nested_repository"
 			return errors.New("artifact contains repository")
 		}
+		for _, part := range strings.Split(filepath.ToSlash(rel), "/") {
+			switch part {
+			case ".claude", ".codex", ".cursor", ".opencode", ".pi", ".t3", ".grok", ".emdash":
+				inspectionBlocker = "artifact_vendor_fixture_or_session_path"
+				return errors.New("artifact contains possible coding-session state")
+			}
+		}
 		if sensitiveName.MatchString(filepath.ToSlash(rel)) {
 			inspectionBlocker = "artifact_contains_private_names"
 			return errors.New("artifact contains private state")
@@ -295,8 +302,11 @@ func (e *Engine) ApplyCache(ctx context.Context, p Plan, id, approval string) (R
 			selected = &copy
 		}
 	}
-	if selected == nil || !selected.Eligible || selected.Kind != "kondo-cache" {
+	if selected == nil || !selected.Eligible || (selected.Kind != "kondo-cache" && selected.Kind != "binary-artifact") {
 		return r, errors.New("artifact is not eligible")
+	}
+	if selected.Kind == "binary-artifact" {
+		return e.applyBinaryArtifact(ctx, p, *selected, r)
 	}
 	fresh := e.inspectCache(ctx, *selected, e.Activity(ctx))
 	if !fresh.Eligible || !fresh.SizeComplete || fresh.Fingerprint != selected.Fingerprint || ctx.Err() != nil {

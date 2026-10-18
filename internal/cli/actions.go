@@ -88,6 +88,13 @@ func projectActions(p disk.Plan, config, project, filter string, limit int) (act
 			item.Commands["private_plan"] = append(append([]string{}, base...), "private", "plan", "--plan", p.ID, "--project", c.ID)
 		}
 		item.Commands["inspect_artifacts"] = append(append([]string{}, base...), "caches", "scan")
+		if c.Analysis != nil {
+			for i, entry := range c.Analysis.Ignored {
+				if entry.Category == "binary_candidate" {
+					item.Commands[fmt.Sprintf("review_binary_%d", i)] = append(append([]string{}, base...), "caches", "plan", "--project", c.Path, "--path", entry.Path, "--disposition", "keep")
+				}
+			}
+		}
 		r.Projects = append(r.Projects, item)
 	}
 	if !found {

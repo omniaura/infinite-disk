@@ -67,7 +67,7 @@ export function validateInventory(input) {
          !Array.isArray(a.available_suggestions) || a.available_suggestions.length>10 || a.available_suggestions.some(k=>!ACTION_NAMES.includes(k)))throw new Error("Invalid analysis");
       const projected={source_checked:a.source_checked,ignored_complete:a.ignored_complete,ignored_count:a.ignored_count,available_suggestions:[...a.available_suggestions],ignored_example_categories:{}};
       for(const key of ["changed_files","commits_not_in_origin_tracking"]){if(a[key]!==undefined){if(!Number.isSafeInteger(a[key])||a[key]<0)throw new Error("Invalid analysis count");projected[key]=a[key];}}
-      for(const key of ["private_data","dependency_candidate","build_candidate","agent_state","unknown_data"]){const n=a.ignored_example_categories?.[key];if(n!==undefined){if(!Number.isSafeInteger(n)||n<0)throw new Error("Invalid category count");projected.ignored_example_categories[key]=n;}}
+      for(const key of ["private_data","dependency_candidate","build_candidate","binary_candidate","agent_state","unknown_data"]){const n=a.ignored_example_categories?.[key];if(n!==undefined){if(!Number.isSafeInteger(n)||n<0)throw new Error("Invalid category count");projected.ignored_example_categories[key]=n;}}
       clean.analysis=projected;
     }
     return clean;
