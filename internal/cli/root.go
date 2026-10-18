@@ -411,6 +411,7 @@ func New(version string) *cobra.Command {
 	triage.Flags().StringVar(&triagePlan, "plan", "latest", "Saved immutable plan ID")
 	triage.Flags().StringSliceVar(&triageProjects, "project", nil, "Advise these exact project IDs (repeatable or comma-separated, at most 20)")
 	root.AddCommand(triage)
+	root.AddCommand(decisionCommand(load, &asJSON))
 	var once bool
 	watch := &cobra.Command{Use: "watch", Short: "Check disk pressure and periodically save reports; NEVER apply plans", RunE: func(cmd *cobra.Command, _ []string) error {
 		e, err := load()

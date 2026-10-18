@@ -315,7 +315,7 @@ func TestRecoverInterruptedClaudeQuarantineNeverOverwrites(t *testing.T) {
 }
 
 func TestClaudeStackChildCloneRetainsParentSession(t *testing.T) {
-	for _, layout := range []string{".claude/worktrees/fixture", ".worktrees/claude-fixture"} {
+	for _, layout := range []string{".claude/worktrees/fixture", ".worktrees/claude-fixture", ".claude/worktrees/no-primary"} {
 		t.Run(layout, func(t *testing.T) {
 			f := newFixture(t)
 			primary := f.repo
@@ -326,6 +326,16 @@ func TestClaudeStackChildCloneRetainsParentSession(t *testing.T) {
 			runGit(t, checkout, "checkout", "main")
 			runGit(t, checkout, "config", "user.name", "Infinite Disk Test")
 			runGit(t, checkout, "config", "user.email", "fixtures@example.invalid")
+			if layout == ".claude/worktrees/no-primary" {
+				// The child clone still has source recovery, but there is no
+				// canonical same-origin primary to hand a conversation to. A
+				// conversation already in the surviving wrapper must stay there.
+				moved := primary + "-retained"
+				if err := os.Rename(primary, moved); err != nil {
+					t.Fatal(err)
+				}
+				primary = moved
+			}
 			write(t, filepath.Join(checkout, "unfinished.txt"), "child clone work\n")
 			old(t, filepath.Join(checkout, "unfinished.txt"))
 			old(t, filepath.Join(checkout, "source.txt"))

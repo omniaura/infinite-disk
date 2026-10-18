@@ -296,10 +296,10 @@ func (e *Engine) prepareClaudeHandoffs(ctx context.Context, c *Candidate, activi
 	if _, ok := claudeWorkspacePrefix(c.Path); !ok {
 		return
 	}
-	target, identity, err := e.claudeDestination(ctx, *c)
-	if err != nil {
-		return
-	}
+	// A surviving parent conversation does not need a same-origin primary
+	// checkout for the child repository. Resolve a different Git destination
+	// only for conversations actually bound inside the removed checkout.
+	var target, identity string
 	var handoffs []ClaudeHandoff
 	for _, s := range c.Sessions {
 		if s.Provider != "Claude Code" || within(c.Path, s.Store) || activity.Busy(s.Store) || activity.Busy(s.Checkout) {
@@ -318,16 +318,35 @@ func (e *Engine) prepareClaudeHandoffs(ctx context.Context, c *Candidate, activi
 				return
 			}
 		}
-		h := ClaudeHandoff{Session: s, Destination: target, TargetIdentity: identity, Files: files, Status: "planned"}
+		h := ClaudeHandoff{Session: s, Files: files, Status: "planned"}
 		if !within(c.Path, s.Checkout) {
 			// A stack session in a surviving parent workspace is not orphaned by
 			// deleting one child repo. Archive/link it, but don't steal its cwd.
 			if !enclosingWorktree(s.Checkout, c.Path) {
 				return
 			}
+			if noSymlinkAncestors(s.Checkout) != nil {
+				return
+			}
+			parent, err := os.Lstat(s.Checkout)
+			if err != nil || !parent.IsDir() {
+				return
+			}
+			parentIdentity, err := privateIdentity(parent)
+			if err != nil {
+				return
+			}
 			h.Destination = s.Checkout
+			h.TargetIdentity = PlanDigest([]byte(s.Checkout + "\x00" + parentIdentity))
 			h.Status = "retain_parent"
 		} else {
+			if target == "" {
+				target, identity, err = e.claudeDestination(ctx, *c)
+				if err != nil {
+					return
+				}
+			}
+			h.Destination, h.TargetIdentity = target, identity
 			if m.Binding != "" && !within(c.Path, m.Binding) {
 				return
 			}
