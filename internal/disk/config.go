@@ -52,6 +52,9 @@ func LoadConfig(path string) (Config, error) {
 }
 
 func (c Config) Validate() error {
+	if err := c.ValidateAgent(); err != nil {
+		return err
+	}
 	if c.Version != ProtocolVersion || c.IdleDays < 1 || c.IdleDays > 36500 || c.PollSeconds < 30 || c.PollSeconds > 86400 || c.AuditMinutes < 1 || c.AuditMinutes > 525600 || c.PeriodicHours < 1 || c.PeriodicHours > 8760 || c.MaxProjects < 1 || c.MaxProjects > 5000 || c.MaxDepth < 1 || c.MaxDepth > 12 || c.MinFreePercent < 0 || c.MinFreePercent > 100 || c.MinFreeGiB > 1000000 {
 		return errors.New("invalid configuration limits")
 	}

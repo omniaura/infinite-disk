@@ -6,6 +6,22 @@ import { Type } from "typebox";
 import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 
 export const TOOL_NAMES = Object.freeze(["inventory_summary", "inspect_project", "suggest_action"]);
+export function providerSettings(input) {
+  const provider=input.provider || "openrouter";
+  if(!["openrouter","ditto"].includes(provider))throw new Error("Unsupported inference provider");
+  if(provider==="openrouter"){
+    if(input.base_url)throw new Error("OpenRouter URL overrides are not supported");
+    return {provider,modelID:input.model??"openai/gpt-4.1-mini",env:"OPENROUTER_API_KEY"};
+  }
+  if(!["https://router.heyditto.ai/v1","https://inference.heyditto.ai/v1"].includes(input.base_url) ||
+     typeof input.model!=="string" || !/^[a-zA-Z0-9][a-zA-Z0-9/_.:-]{0,159}$/.test(input.model))throw new Error("Invalid Ditto inference configuration");
+  return {provider,modelID:input.model,env:"DITTO_INFERENCE_API_KEY",registration:{
+    baseUrl:input.base_url,api:"openai-completions",authHeader:true,
+    // Conservative worker limits, not a statement of the model's full capacity.
+    models:[{id:input.model,name:input.model,reasoning:false,input:["text"],contextWindow:32768,maxTokens:4096,
+      cost:{input:0,output:0,cacheRead:0,cacheWrite:0},
+      compat:{supportsStore:false,supportsDeveloperRole:false,supportsReasoningEffort:false,maxTokensField:"max_completion_tokens"}}]}};
+}
 export const ACTION_NAMES = Object.freeze(["preserve_source","remove_checkout","keep","verify_activity","native_session_handoff","private_backup","inspect_artifacts","resolve_blockers"]);
 export function memoryCredentials() {
   const values=new Map();
@@ -91,8 +107,9 @@ export function validateSuggestionEvidence(recommendations,candidates,steps) {
 
 export async function triage(input, options = {}) {
   const candidates=validateInventory(input);
-  const apiKey=options.apiKey ?? process.env.OPENROUTER_API_KEY;
-  if(!apiKey)throw new Error("OPENROUTER_API_KEY is required for explicit agent triage");
+  const settingsProvider=providerSettings(input);
+  const apiKey=options.apiKey ?? process.env[settingsProvider.env];
+  if(!apiKey)throw new Error("Selected inference provider credential is required for explicit agent triage");
   const sterile=await fs.mkdtemp(path.join(os.tmpdir(),"infinite-disk-pi-"));
   await fs.chmod(sterile,0o700);
   let session;let timer;let requests=0;let inspectCount=0;let stage="runtime";
@@ -105,11 +122,11 @@ export async function triage(input, options = {}) {
     await loader.reload();
     const runtime=await ModelRuntime.create({credentials:memoryCredentials(),modelsPath:null,
       modelsStorePath:path.join(sterile,"models.json"),allowModelNetwork:false,refreshOnCreate:false});
-    await runtime.setRuntimeApiKey("openrouter",apiKey);
+    if(settingsProvider.registration)runtime.registerProvider(settingsProvider.provider,settingsProvider.registration);
+    await runtime.setRuntimeApiKey(settingsProvider.provider,apiKey);
     stage="model_selection";
-    const modelID=input.model ?? "openai/gpt-4.1-mini";
-    const model=runtime.getModel("openrouter",modelID);
-    if(!model)throw new Error("Configured OpenRouter model is unavailable");
+    const model=runtime.getModel(settingsProvider.provider,settingsProvider.modelID);
+    if(!model)throw new Error("Configured inference model is unavailable");
     stage="session_creation";
     ({session}=await createAgentSession({cwd:sterile,agentDir:sterile,modelRuntime:runtime,model,thinkingLevel:"off",
       settingsManager:settings,resourceLoader:loader,sessionManager:SessionManager.inMemory(sterile),

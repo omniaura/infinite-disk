@@ -71,7 +71,7 @@ func New(version string) *cobra.Command {
 		renderPlan(cmd.OutOrStdout(), p, false)
 		return nil
 	}}
-	scan.Flags().BoolVar(&withAgent, "agent", false, "Use the bounded, metadata-only Pi worker (requires setup and OpenRouter key)")
+	scan.Flags().BoolVar(&withAgent, "agent", false, "Use the bounded, metadata-only Pi worker (requires setup and configured inference credentials)")
 	root.AddCommand(scan)
 	var planID string
 	var details bool
@@ -299,6 +299,7 @@ func New(version string) *cobra.Command {
 	}})
 	agent := &cobra.Command{Use: "agent", Short: "Install or run the read-only Pi worker"}
 	root.AddCommand(agent)
+	agent.AddCommand(agentConfigCommand(load, &configPath, &asJSON))
 	agent.AddCommand(&cobra.Command{Use: "setup", Short: "Install the locked Pi SDK once, without package lifecycle scripts", RunE: func(cmd *cobra.Command, _ []string) error {
 		e, err := load()
 		if err != nil {

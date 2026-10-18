@@ -1,5 +1,37 @@
 # Infinite Disk
 
+### Ditto Router inference (optional)
+
+The Pi worker can use a personal Ditto Router endpoint instead of OpenRouter.
+It still receives only bounded, anonymized project metadata and can only suggest
+actions. It cannot approve, push, delete, or read coding-session content.
+
+Use `heyditto endpoints provider-keys --output json` to find a saved personal
+provider-key ID (not the raw key), and `heyditto endpoints models gm` for the
+server's model catalog. Create an endpoint with an explicit model, `--billing-mode
+byok`, and `--provider-key <UUID>` to avoid Ditto-funded fallback. Do not change
+your CLI default endpoint unless you intend to.
+
+Create a private directory (0700), then deliver an endpoint-scoped key directly
+to a new file using `heyditto endpoints keys create <endpoint> --key-file
+<absolute-path> --yes`. The file must not already exist. Never use a Ditto
+management key or the raw upstream provider key in Infinite Disk.
+
+```sh
+infinite-disk agent setup
+infinite-disk agent configure --provider ditto --model gm/gpt-6-luna \
+  --base-url https://router.heyditto.ai/v1 --key-file /absolute/private/inference-key
+infinite-disk triage --plan latest --json
+```
+
+Use the official gateway URL returned by `heyditto endpoints list`. Configuration
+stores only a file reference; the selected key is passed privately to the worker.
+Configuration does not enable scheduled paid runs. Existing OpenRouter setups
+continue to use `OPENROUTER_API_KEY`. Each explicit triage is limited to four model
+requests, 4096 output tokens/request and 60 seconds; these are request bounds,
+not a dollar-spend guarantee. Pi's local custom-provider cost counters are not
+billing evidence; use the Router's receipts/usage for actual costs.
+
 **A developer-workspace steward that asks before it acts.** Go + Cobra for deterministic safety, Pi for optional read-only triage. Standalone first; designed for desktop integrations through versioned JSON.
 
 > `scan`, `triage`, and the background watcher **never commit, push, or delete projects**. No autonomous deletion mode exists. Approval is per project, and preservation must verify before removal. This is a young tool: start with reports, inspect the evidence, and keep independent backups.

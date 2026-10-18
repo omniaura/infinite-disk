@@ -98,18 +98,20 @@ func (e *Engine) triage(ctx context.Context, p Plan, selected map[string]bool) (
 	input, _ := json.Marshal(struct {
 		Version    int       `json:"version"`
 		Model      string    `json:"model"`
+		Provider   string    `json:"provider,omitempty"`
+		BaseURL    string    `json:"base_url,omitempty"`
 		Candidates []summary `json:"candidates"`
-	}{1, e.Config.AgentModel, items})
+	}{1, e.Config.AgentModel, e.Config.AgentProvider, e.Config.AgentBaseURL, items})
 	ctx, cancel := context.WithTimeout(ctx, 75*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "node", script)
 	cmd.Dir = e.Config.StateDir
 	cmd.Stdin = bytes.NewReader(input)
 	// The worker receives only the requested provider key, not all provider credentials.
-	for _, name := range []string{"PATH", "HOME", "TMPDIR", "SYSTEMROOT", "OPENROUTER_API_KEY"} {
-		if value, ok := os.LookupEnv(name); ok {
-			cmd.Env = append(cmd.Env, name+"="+value)
-		}
+	var err error
+	cmd.Env, err = AgentEnvironment(e.Config)
+	if err != nil {
+		return p, err
 	}
 	output := &cappedBuffer{limit: 1 << 20}
 	cmd.Stdout = output
@@ -200,7 +202,7 @@ func (e *Engine) triage(ctx context.Context, p Plan, selected map[string]bool) (
 	p.Recommendations = result.Recommendations
 	p.AgentSteps = result.Steps
 	p.AgentSteps = append(p.AgentSteps, Evidence{"pi_coverage", "checked", itoa(len(result.Recommendations)) + " projects advised from " + itoa(len(items)) + " largest metadata records; " + itoa(len(p.Candidates)) + " projects in saved report. Advice is not approval."})
-	p, err := SavePlan(e.Config, p)
+	p, err = SavePlan(e.Config, p)
 	if err != nil {
 		return p, err
 	}

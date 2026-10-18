@@ -18,6 +18,9 @@ type Config struct {
 	MaxDepth           int      `json:"max_depth"`
 	AgentEnabled       bool     `json:"agent_enabled"`
 	AgentModel         string   `json:"agent_model"`
+	AgentProvider      string   `json:"agent_provider,omitempty"`
+	AgentBaseURL       string   `json:"agent_base_url,omitempty"`
+	AgentKeyFile       string   `json:"agent_key_file,omitempty"`
 	AllowedRemoteHosts []string `json:"allowed_remote_hosts"`
 }
 
