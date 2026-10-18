@@ -59,6 +59,14 @@ func blockerText(s string) string {
 	switch s {
 	case "artifact_contains_private_names":
 		return "Artifact contains potentially private file names; inspect and privately back up before cleanup."
+	case "artifact_binary_format_unverified":
+		return "Not a recognized standalone executable; keep or inspect manually."
+	case "artifact_vendor_fixture_or_session_path":
+		return "Vendor, fixture or coding-session path; generic binary cleanup is not allowed."
+	case "artifact_private_changed_or_unverified":
+		return "Binary contains sensitive-looking data, changed, or could not be fully checked; retained."
+	case "invalid_artifact_disposition":
+		return "Choose keep, archive or discard in a new exact artifact plan."
 	case "artifact_contains_nested_repository":
 		return "Artifact contains another repository; preserve it separately."
 	case "artifact_symlink_outside_scope":

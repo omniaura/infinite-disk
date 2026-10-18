@@ -201,6 +201,35 @@ These are normally regenerable artifacts, but custom irreplaceable data inside a
 
 For an explicitly authorized automation, `caches apply --plan CACHE_DIGEST --project ARTIFACT_ID --approve-plan CACHE_DIGEST --non-interactive --json` approves one exact artifact without a prompt. There is no batch approve-all. Wrong/expired plans, blocked IDs, changed paths and missing approval fail; `--non-interactive` never waits for stdin.
 
+### Ignored build binaries: keep, archive, or discard
+
+`analyze` labels recognized ignored executable files as `binary_candidate`, not proven private data. `actions --json` provides a report-only `review_binary_*` argv for these examples. Pi sees only category counts, never names, bytes, paths or approval tools. Kondo still supplies the directory catalog; this supplements it with bounded file-header inspection and never executes a discovered binary.
+
+```sh
+# Explicit Git checkout root inside configured roots; path is project-relative.
+infinite-disk caches plan --project /projects/old/backend --path worker
+# Default choice is keep. To propose permanent disposal instead:
+infinite-disk caches plan --project /projects/old/backend --path worker --disposition discard
+# Review the saved report; then approve this one exact file and action:
+infinite-disk caches apply --plan PLAN --project ARTIFACT_ID
+# Trusted host/agent approval equivalent (no stdin prompt):
+infinite-disk caches apply --plan PLAN --project ARTIFACT_ID --approve-plan PLAN --non-interactive --json
+```
+
+`keep` records the approved choice without changing the file. `archive` copies the binary to private local recovery, verifies its full SHA-256 and mode, then rechecks the original before removing it. **Archive retains the file's bytes locally and is not a space-saving action.** `discard` permanently removes only that file, without a backup; use it only after confirming the binary is rebuildable/unneeded. The plan digest binds the disposition: approving archive cannot authorize discard. No inference tool can approve either action.
+
+The file must be owned by the current user, entirely ignored/untracked, inactive, and older than the configured inactivity period. Thin 64-bit Mach-O executables and 64-bit ELF executables/PIE are recognized as **likely** build artifacts, not proven disposable files. Tracked files, vendor/fixture/dependency/session directories, nested repositories, hardlinks, symlinks/escapes, libraries/unknown formats, sensitive-looking names/content, oversized files (>1 GiB), incomplete activity checks and changed identities/content remain blocked. The full file digest, inode/change time, owning directory, Git status and activity are rechecked before disposal. This is not a blanket "delete binaries" mode. Same-user filesystem races cannot be fully excluded; stop the project's tools before approval.
+
+To restore an archived binary after restoring its source checkout if necessary:
+
+```sh
+infinite-disk caches restore --plan PLAN --project ARTIFACT_ID --approve-plan PLAN
+```
+
+Restore verifies the archive, keeps it, requires an idle ignored/untracked destination and never overwrites an existing path. An interrupted copy can leave a partial archive or newly created restore file; originals/archives remain and errors never grant deletion approval. These commands do not push source, alter Git history, remove checkouts or modify coding sessions. Private receipts record the exact action, archive location and retained bytes. The monitor remains report-only and does not automatically plan or apply binary disposal.
+
+For a large dependency directory blocked by a different package elsewhere in it, the same report-only `caches plan --project ROOT --path node_modules/PACKAGE/dist --disposition discard` can select a smaller directory **only inside an artifact Kondo discovers**. Discovery uses Kondo dry-run without an age filter; Infinite Disk still independently enforces the selected directory's configured inactivity period, ignored/tracked status, private names, link scope, activity and full metadata checks. It does not waive a blocked package's checks or delete its siblings. Directory subsets support discard only; use the existing private-preservation workflow for private state. A fresh exact plan and per-artifact approval remain required.
+
 ## Analyze, suggest, then approve
 
 ```sh

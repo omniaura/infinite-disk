@@ -127,7 +127,13 @@ func (e *Engine) analyzeCandidate(ctx context.Context, c Candidate) *ProjectAnal
 			}
 			a.IgnoredCount++
 			if len(a.Ignored) < 25 {
-				a.Ignored = append(a.Ignored, IgnoredEntry{string(raw), ignoredCategory(p)})
+				category := ignoredCategory(p)
+				if category == "unknown_data" && noSymlinkAncestors(filepath.Join(c.Path, p)) == nil {
+					if _, formatErr := binaryArtifactFormat(filepath.Join(c.Path, p)); formatErr == nil {
+						category = "binary_candidate"
+					}
+				}
+				a.Ignored = append(a.Ignored, IgnoredEntry{string(raw), category})
 			}
 		}
 		if a.IgnoredCount > len(a.Ignored) {
