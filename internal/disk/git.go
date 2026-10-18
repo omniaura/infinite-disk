@@ -30,6 +30,13 @@ func (b *cappedBuffer) Write(p []byte) (int, error) {
 	return b.Buffer.Write(p)
 }
 
+// bytes.Buffer's promoted ReadFrom would let os/exec's io.Copy bypass Write
+// and its safety limit. Hide ReaderFrom on the destination of this copy so
+// every chunk passes through our bounded Write implementation.
+func (b *cappedBuffer) ReadFrom(r io.Reader) (int64, error) {
+	return io.Copy(struct{ io.Writer }{b}, r)
+}
+
 func gitCommand(ctx context.Context, dir string, env []string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
