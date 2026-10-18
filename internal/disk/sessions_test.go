@@ -231,6 +231,11 @@ func TestNativeResumeRouteIsPrivateRevalidatedAndNotAppMutation(t *testing.T) {
 		t.Fatal("Desktop workspace treated as CLI")
 	}
 	s.Source = "cli"
+	s.Originator = "Codex Desktop"
+	if _, err := f.e.PrepareSessionResume(context.Background(), "Codex", s.ID, f.repo); err == nil {
+		t.Fatal("app originator treated as CLI-owned")
+	}
+	s.Originator = "codex-tui"
 	route, err = f.e.PrepareSessionResume(context.Background(), "Codex", s.ID, f.repo)
 	if err != nil || !slices.Equal(route.Args, []string{"resume", s.ID, "--cd", f.repo}) {
 		t.Fatal(route, err)
@@ -243,5 +248,19 @@ func TestNativeResumeRouteIsPrivateRevalidatedAndNotAppMutation(t *testing.T) {
 	write(t, transcript, "CHANGED TRANSCRIPT")
 	if err := f.e.ValidateSessionResume(context.Background(), route); err == nil {
 		t.Fatal("changed transcript accepted")
+	}
+	route, err = f.e.PrepareSessionResume(context.Background(), "Codex", s.ID, f.repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, f.repo, "commit", "--allow-empty", "-m", "destination advanced during review")
+	if err := f.e.SaveSessionRoute(context.Background(), route); err == nil {
+		t.Fatal("changed destination accepted")
+	}
+	f.e.Sessions = func(context.Context) SessionInventory {
+		return SessionInventory{Complete: true, Sessions: []Session{s, s}}
+	}
+	if _, err := f.e.PrepareSessionResume(context.Background(), "Codex", s.ID, f.repo); err == nil {
+		t.Fatal("duplicate session ID accepted")
 	}
 }
