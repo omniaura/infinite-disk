@@ -120,6 +120,7 @@ func (e *Engine) triage(ctx context.Context, p Plan, selected map[string]bool) (
 	}
 	output := &cappedBuffer{limit: 1 << 20}
 	cmd.Stdout = output
+	started := time.Now().UTC()
 	if err := cmd.Run(); err != nil {
 		stage := "worker execution"
 		if ctx.Err() != nil {
@@ -150,9 +151,18 @@ func (e *Engine) triage(ctx context.Context, p Plan, selected map[string]bool) (
 		Steps           []Evidence       `json:"steps"`
 		Capabilities    []string         `json:"capabilities"`
 		Warnings        []string         `json:"warnings,omitempty"`
+		Requests        int              `json:"requests"`
+		Usage           struct {
+			Input    uint64 `json:"input_tokens"`
+			Output   uint64 `json:"output_tokens"`
+			Reported bool   `json:"reported"`
+		} `json:"usage"`
 	}
 	if err := json.Unmarshal(output.Bytes(), &result); err != nil || result.Version != 1 {
 		return p, errors.New("invalid Pi response")
+	}
+	if result.Requests < 1 || result.Requests > 4 || result.Usage.Input > 1000000 || result.Usage.Output > 4*4096 || result.Usage.Reported != (result.Usage.Input+result.Usage.Output > 0) {
+		return p, errors.New("invalid Pi inference evidence; run agent setup for the current worker")
 	}
 	slices.Sort(result.Capabilities)
 	if !slices.Equal(result.Capabilities, []string{"inspect_project", "inventory_summary", "suggest_action"}) {
@@ -236,6 +246,10 @@ func (e *Engine) triage(ctx context.Context, p Plan, selected map[string]bool) (
 	}
 	p.Recommendations = result.Recommendations
 	p.AgentSteps = result.Steps
+	p.AgentRun = &AgentRun{Provider: e.Config.AgentProvider, Model: e.Config.AgentModel, StartedAt: started, DurationMS: time.Since(started).Milliseconds(), Requests: result.Requests, Projects: len(items), Advised: len(result.Recommendations), InputTokens: result.Usage.Input, OutputTokens: result.Usage.Output, UsageReported: result.Usage.Reported}
+	if p.AgentRun.Provider == "" {
+		p.AgentRun.Provider = "openrouter"
+	}
 	for range result.Warnings {
 		p.AgentSteps = append(p.AgentSteps, Evidence{"pi_response", "constrained", "Unrecorded model action suggestions were omitted; no tool evidence or approval was invented."})
 	}

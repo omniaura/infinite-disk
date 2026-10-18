@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 )
 
@@ -71,6 +72,10 @@ func (e *Engine) removeWithClaudeHandoff(ctx context.Context, c Candidate, r *Re
 	check := e.inspectSource(ctx, destination, active)
 	if !check.Eligible || check.Fingerprint != c.Fingerprint || check.Head != c.Head || check.CommonDir != c.CommonDir && c.Kind == "worktree" {
 		return errors.New("quarantined checkout changed; removal aborted")
+	}
+	archiveCheck := c
+	if e.verifyPrivateArchives(ctx, &archiveCheck) != nil || !slices.Equal(archiveCheck.PrivateArchives, c.PrivateArchives) {
+		return errors.New("private archives changed during session handoff; checkout retained")
 	}
 	for _, h := range r.SessionHandoffs {
 		if active.Busy(h.Session.Checkout) {

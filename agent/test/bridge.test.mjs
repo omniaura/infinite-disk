@@ -17,12 +17,12 @@ test("real Pi runtime uses Ditto tool-call wire format without external tools or
   calls.push({url:String(url),body:JSON.parse(init.body),headers:new Headers(init.headers)});
   const delta=calls.length===1?{role:"assistant",tool_calls:[{index:0,id:"call_inventory",type:"function",function:{name:"inventory_summary",arguments:"{}"}}]}:
    {role:"assistant",content:JSON.stringify({recommendations:[{candidate_id:candidate.id,priority:1,decision:"review",reason:"Fixture metadata only",proposed_steps:["Ask approval"],suggested_actions:[]}]})};
-  const chunk={id:"chatcmpl-fixture",object:"chat.completion.chunk",created:1,model:"gm/gpt-6-luna",choices:[{index:0,delta,finish_reason:calls.length===1?"tool_calls":"stop"}]};
+  const chunk={id:"chatcmpl-fixture",object:"chat.completion.chunk",created:1,model:"gm/gpt-6-luna",usage:{prompt_tokens:11,completion_tokens:3,total_tokens:14},choices:[{index:0,delta,finish_reason:calls.length===1?"tool_calls":"stop"}]};
   return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`,{headers:{"content-type":"text/event-stream"}});
  };
  try {
   const result=await triage({version:1,provider:"ditto",base_url:"https://router.heyditto.ai/v1",model:"gm/gpt-6-luna",candidates:[{...candidate,path:"private-path",source:"private-source"}]},{apiKey:"ditto_inf_fixture_not_real"});
-  assert.equal(result.requests,2);assert.equal(result.recommendations.length,1);assert.ok(result.steps.some(x=>x.check==='inventory_summary'));assert.deepEqual(calls[0].body.tool_choice,{type:'function',function:{name:'inventory_summary'}});
+  assert.equal(result.requests,2);assert.deepEqual(result.usage,{input_tokens:22,output_tokens:6,reported:true});assert.equal(result.recommendations.length,1);assert.ok(result.steps.some(x=>x.check==='inventory_summary'));assert.deepEqual(calls[0].body.tool_choice,{type:'function',function:{name:'inventory_summary'}});
   for(const call of calls){assert.equal(call.url,"https://router.heyditto.ai/v1/chat/completions");assert.equal(call.headers.get('authorization'),'Bearer ditto_inf_fixture_not_real');assert.equal(call.body.model,'gm/gpt-6-luna');assert.deepEqual(call.body.tools.map(x=>x.function.name),TOOL_NAMES);assert.equal(call.body.max_completion_tokens,4096);assert.ok(!JSON.stringify(call.body).includes('private-path'));assert.ok(!JSON.stringify(call.body).includes('private-source'));}
  } finally {globalThis.fetch=original;}
 });

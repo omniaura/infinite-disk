@@ -98,7 +98,7 @@ func (e *Engine) analyzeCandidate(ctx context.Context, c Candidate) *ProjectAnal
 			add("native_session_handoff", "Preserve session history and use the provider's supported native lifecycle. No generic removal is permitted.", false, true)
 		}
 		if slices.Contains(c.Blockers, "private_or_unknown_ignored_state") || slices.Contains(c.Blockers, "source_or_secret_check_requires_review") {
-			add("private_backup", "Review and privately back up ignored or sensitive data; do not upload it to a Git recovery branch. Rescan after resolution.", false, true)
+			add("private_backup", "Plan an exact private archive; separately approve local relocation and verify recovery, then reanalyze. No private data uploads or checkout deletion.", CanArchivePrivate(c), true)
 		}
 		if slices.Contains(c.Blockers, "private_or_unknown_ignored_state") {
 			add("inspect_artifacts", "Run Kondo dry-run to identify regenerable artifacts separately; this does not authorize deletion.", true, false)
@@ -192,6 +192,7 @@ func (e *Engine) AnalyzeSelected(ctx context.Context, p Plan, selected map[strin
 	// Old Pi advice no longer describes the refreshed observations.
 	p.Recommendations = nil
 	p.AgentSteps = nil
+	p.AgentRun = nil
 	p, err = SavePlan(e.Config, p)
 	if err != nil {
 		return p, err

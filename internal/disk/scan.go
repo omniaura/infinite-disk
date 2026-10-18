@@ -334,6 +334,9 @@ func (e *Engine) inspectSource(ctx context.Context, path string, activity Activi
 		block(&c, "staged_and_unstaged_versions_require_manual_preservation")
 	}
 	c.Evidence = append(c.Evidence, Evidence{"git_source", "checked", fmt.Sprintf("HEAD %s; %d changed files", head, dirty)}, Evidence{"private_state", "checked", "Unknown ignored files and sensitive changed content block removal"})
+	if err := e.verifyPrivateArchives(ctx, &c); err != nil {
+		block(&c, "private_archive_requires_recovery")
+	}
 	return measureCandidate(ctx, c)
 }
 

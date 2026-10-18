@@ -177,7 +177,11 @@ export async function triage(input, options = {}) {
     const {recommendations,warnings}=constrained;
     stage="suggestion_evidence";
     validateSuggestionEvidence(recommendations,candidates,steps);
-    return {version:1,recommendations,steps,requests,capabilities:[...TOOL_NAMES],warnings};
+    const stats=session.getSessionStats();
+    const count=n=>Number.isSafeInteger(n)&&n>=0?n:0;
+    const usage={input_tokens:count(stats.tokens.input)+count(stats.tokens.cacheRead)+count(stats.tokens.cacheWrite),output_tokens:count(stats.tokens.output)};
+    usage.reported=usage.input_tokens+usage.output_tokens>0;
+    return {version:1,recommendations,steps,requests,usage,capabilities:[...TOOL_NAMES],warnings};
   } catch {
     throw new Error(`Pi triage failed at ${stage}; no raw provider details retained`);
   } finally {

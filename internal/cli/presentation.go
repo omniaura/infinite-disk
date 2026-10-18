@@ -73,6 +73,8 @@ func blockerText(s string) string {
 		return "Saved report predates session checks; run scan before approving checkout removal."
 	case "private_or_unknown_ignored_state":
 		return "Ignored files need review (may be builds, secrets or local data)."
+	case "private_archive_requires_recovery":
+		return "Private archive is incomplete, changed or busy; verify or restore it before cleanup."
 	case "recent_source_activity":
 		return "Recently changed; keep for now."
 	case "project_in_use":
@@ -132,6 +134,36 @@ func renderPlan(w io.Writer, p disk.Plan, details bool) {
 	fmt.Fprintf(w, "Report: %s (saved batch, not the whole disk)\n", p.CreatedAt.Local().Format("Jan 2, 15:04"))
 	if p.DiscoveredProjects > 0 {
 		fmt.Fprintf(w, "Checked this batch: %d of %d discovered projects\n", len(p.Candidates), p.DiscoveredProjects)
+	}
+	if a := p.AgentRun; a != nil {
+		fmt.Fprintln(styled(w, toneHeading), "\nAGENT RUN  |  Suggestions only")
+		fmt.Fprintf(w, "  %s / %s · %d model requests · %.1fs\n", plain(a.Provider), plain(a.Model), a.Requests, float64(a.DurationMS)/1000)
+		fmt.Fprintf(w, "  Pi reviewed %d metadata records; %d recommendations.\n", a.Projects, a.Advised)
+		if a.UsageReported {
+			fmt.Fprintf(w, "  Reported tokens: %d input (including cache), %d output.\n", a.InputTokens, a.OutputTokens)
+		} else {
+			fmt.Fprintln(w, "  Token usage unavailable; this does not mean the run was free.")
+		}
+		counts := map[string]int{}
+		for _, step := range p.AgentSteps {
+			if step.Outcome == "performed" {
+				counts[step.Check]++
+			}
+		}
+		for _, name := range []string{"inventory_summary", "inspect_project", "suggest_action"} {
+			if counts[name] > 0 {
+				fmt.Fprintf(w, "  Tool: %s × %d\n", name, counts[name])
+			}
+		}
+		for _, r := range p.Recommendations {
+			for _, c := range p.Candidates {
+				if c.ID == r.CandidateID {
+					wrapped(w, "  AI → ", label(c)+": "+r.Reason)
+					break
+				}
+			}
+		}
+		fmt.Fprintln(w, "  No approval, Git writes or deletion tools available to Pi.")
 	}
 	if p.DiscoveryCached && p.DiscoveredAt != nil {
 		fmt.Fprintf(w, "Project index reused from %s; --refresh discovers newly created folders.\n", p.DiscoveredAt.Local().Format("15:04"))

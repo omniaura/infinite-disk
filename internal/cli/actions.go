@@ -25,20 +25,22 @@ type actionItem struct {
 	Commands   map[string][]string   `json:"commands,omitempty"`
 }
 type actionReport struct {
-	Version         int          `json:"version"`
-	Mode            string       `json:"mode"`
-	ApprovalGranted bool         `json:"approval_granted"`
-	PlanID          string       `json:"plan_id,omitempty"`
-	SavedBatches    int          `json:"saved_batches"`
-	Total           int          `json:"total"`
-	Matching        int          `json:"matching"`
-	Returned        int          `json:"returned"`
-	Warnings        []string     `json:"warnings"`
-	Projects        []actionItem `json:"projects"`
+	Version         int            `json:"version"`
+	Mode            string         `json:"mode"`
+	ApprovalGranted bool           `json:"approval_granted"`
+	PlanID          string         `json:"plan_id,omitempty"`
+	SavedBatches    int            `json:"saved_batches"`
+	Total           int            `json:"total"`
+	Matching        int            `json:"matching"`
+	Returned        int            `json:"returned"`
+	Warnings        []string       `json:"warnings"`
+	Projects        []actionItem   `json:"projects"`
+	AgentRun        *disk.AgentRun `json:"agent_run,omitempty"`
 }
 
 func projectActions(p disk.Plan, config, project, filter string, limit int) (actionReport, error) {
 	r := actionReport{Version: 1, Mode: "suggestions-only", PlanID: p.ID, SavedBatches: 1, Total: len(p.Candidates), Projects: []actionItem{}, Warnings: append(append([]string{}, p.Warnings...), p.SessionWarnings...)}
+	r.AgentRun = p.AgentRun
 	if limit < 1 || limit > 5000 {
 		return r, errors.New("--limit must be between 1 and 5000")
 	}
@@ -82,6 +84,9 @@ func projectActions(p disk.Plan, config, project, filter string, limit int) (act
 			item.Commands["preserve_source"] = append(append([]string{}, args...), "--preserve-only")
 		}
 		item.Commands["analyze"] = append(append([]string{}, base...), "analyze", "--plan", p.ID, "--project", c.ID)
+		if disk.CanArchivePrivate(c) {
+			item.Commands["private_plan"] = append(append([]string{}, base...), "private", "plan", "--plan", p.ID, "--project", c.ID)
+		}
 		item.Commands["inspect_artifacts"] = append(append([]string{}, base...), "caches", "scan")
 		r.Projects = append(r.Projects, item)
 	}

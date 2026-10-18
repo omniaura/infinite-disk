@@ -92,6 +92,49 @@ Unrecorded model action suggestions are discarded with an audit warning, never
 turned into tool evidence or approval. Unsupported actions and project IDs are
 still rejected; retained suggestions must pass the same Go evidence checks.
 
+### Evidence that agentic mode ran
+
+`scan --agent`, `triage`, and `review` show an **AGENT RUN** panel: configured
+provider/model, actual bounded model request count, elapsed time, advisory
+coverage, reported input/output tokens, tool-call counts and the recommendations.
+`review --json` retains this as `agent_run` plus `agent_steps`. Missing token
+usage means unknown, not free inference. Model recommendations and tool records
+are suggestions only; source/private/session checks and separate exact CLI
+approval still own every write. A plain scan without `--agent` has no AI run.
+
+### Preserve ignored/private state locally
+
+```sh
+# Read-only inventory of exact paths and byte hashes; nothing moved:
+infinite-disk private plan --plan SOURCE_PLAN --project PROJECT_ID
+infinite-disk private review --plan PRIVATE_PLAN
+# Separate, exact one-project approval; local relocation, no upload/deletion:
+infinite-disk private apply --plan PRIVATE_PLAN --approve-plan PRIVATE_PLAN
+# Refresh source/session/eligibility checks, then separately review removal:
+infinite-disk analyze --plan SOURCE_PLAN --project PROJECT_ID
+infinite-disk apply --review
+# Restore source at its original path first, then copy private files back:
+infinite-disk private restore --plan PRIVATE_PLAN --approve-plan PRIVATE_PLAN
+```
+
+Use the same `--config` throughout. This archives unknown ignored roots and
+sensitive-named entries inside allowed dependency artifacts with same-filesystem,
+no-overwrite moves, durable intent receipts and independent SHA-256 readback.
+Tracked source, native agent state, nested repositories, symlinks, hardlinks,
+special files, mount crossings, changed/busy/unknown activity and incomplete
+inventories remain protected. A project archive has a 2 GiB byte budget and a
+250,000-entry traversal limit. Private data is **local only**, not an off-device
+backup and never uploaded to Git or Pi. It consumes retained storage, not savings.
+
+New scans and apply recheck linked private archives; incomplete, modified or busy
+archives prevent removal. Interrupted relocation keeps every byte in its original
+or journaled archive path; `private restore` recovers moved entries without
+overwriting new work. Restore is copy-based and retains the archive; identical
+destinations are skipped. Inspect retained staging copies after a failed restore.
+Only after a fresh analysis passes can checkout removal be approved separately.
+Unknown native/session layouts and dependency attestation remain separate work;
+this is not a force-delete option. Archives are never automatically pruned.
+
 ### Include your coding apps
 
 ```sh
@@ -228,7 +271,7 @@ infinite-disk scan --agent
 # Or: infinite-disk triage --plan latest
 ```
 
-Pi receives **only opaque project IDs, age, estimated bytes, checked-source/count facts, local-tracking commit counts, ignored-example category counts, offered action kinds and mechanical blockers**. No filenames, source, repository names, branches, remotes, session text or local paths are sent. Its only tools are `inventory_summary`, `inspect_project` and `suggest_action`; the last records a suggestion with `approved:false, executed:false`, never calls the CLI. Filesystem/shell tools, extensions, skills, project instructions, persistent sessions, automatic retries, compaction, and cache warming are disabled. At most the 200 largest project metadata records are offered; `agent_steps` records actual advisory coverage. Requests are capped at four, output at 4,096 tokens/request, inspections at two, and the run at 60 seconds (75-second parent deadline). This bounds calls, **not a guaranteed dollar spend**. Provider pricing and metadata exposure still apply. Rerun `agent setup` after upgrading an older worker.
+Pi receives **only opaque project IDs, age, estimated bytes, checked-source/count facts, local-tracking commit counts, ignored-example category counts, offered action kinds and mechanical blockers**. No filenames, source, repository names, branches, remotes, session text or local paths are sent. Its only tools are `inventory_summary`, `inspect_project` and `suggest_action`; the last records a suggestion with `approved:false, executed:false`, never calls the CLI. Filesystem/shell tools, extensions, skills, project instructions, persistent sessions, automatic retries, compaction, and cache warming are disabled. At most the 20 largest project metadata records are offered; `agent_steps` records actual advisory coverage. Requests are capped at four, output at 4,096 tokens/request, inspections at two, and the run at 60 seconds (75-second parent deadline). This bounds calls, **not a guaranteed dollar spend**. Provider pricing and metadata exposure still apply. Rerun `agent setup` after upgrading an older worker.
 
 Pi recommendations are advisory. They cannot override a blocker or authorize a Git write/deletion. Reports distinguish performed checks from proposed future steps. Pi 1.3.0 is pinned with a lockfile; the architecture follows Ditto Desktop's Pi integration, with a newer dependency version to address an upstream transitive advisory.
 
