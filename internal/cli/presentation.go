@@ -317,7 +317,7 @@ func renderApproval(w io.Writer, c disk.Candidate, preserveOnly bool) {
 	if !preserveOnly {
 		wrapped(styled(w, toneDanger), "  ", "2. Permanently remove this entire local checkout, not just caches.")
 	}
-	wrapped(styled(w, toneWarning), "  ", "Recovery excludes ignored dependencies, local Git settings and unreachable-only objects. Estimated savings may differ from actual free space.")
+	wrapped(styled(w, toneWarning), "  ", "Recovery excludes ignored dependencies and local Git settings. Clones with unreachable-only Git history are retained for manual preservation. Estimated savings may differ from actual free space.")
 }
 
 func renderSessionLinks(w io.Writer, c disk.Candidate, details bool) {
