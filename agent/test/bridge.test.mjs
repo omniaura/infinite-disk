@@ -1,12 +1,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
-import {TOOL_NAMES,SYSTEM_PROMPT,validateInventory,createInventoryTools,validateRecommendations} from "../bridge.mjs";
+import {TOOL_NAMES,SYSTEM_PROMPT,validateInventory,createInventoryTools,validateRecommendations,validateSuggestionEvidence} from "../bridge.mjs";
 
 const candidate={id:"abcdef0123456789",eligible:true,age_days:30,size_bytes:5*2**30,dirty_files:2,blockers:[]};
 test("inventory projects away all private metadata",()=>{
  const data=validateInventory({version:1,candidates:[{...candidate,path:"/private/project",name:"secret project",source:"private source",remote:"private remote"}]});
  assert.deepEqual(data,[candidate]);assert.ok(!JSON.stringify(data).includes("private"));
+});
+test("final proposed actions need actual suggestion-tool evidence",()=>{
+ const c={...candidate,analysis:{available_suggestions:["preserve_source"]}};
+ const r={candidate_id:c.id,suggested_actions:["preserve_source"]};
+ assert.throws(()=>validateSuggestionEvidence([r],[c],[]));
+ assert.throws(()=>validateSuggestionEvidence([r],[c],[{check:"suggest_action",detail:c.id+":keep"}]));
+ validateSuggestionEvidence([r],[c],[{check:"suggest_action",detail:c.id+":preserve_source"}]);
 });
 test("invalid or excessive inventories fail closed",()=>{
  for(const input of [{version:2,candidates:[]},{version:1,candidates:Array(201).fill(candidate)},{version:1,candidates:[{...candidate,id:"../bad"}]},{version:1,candidates:[{...candidate,size_bytes:-1}]}])assert.throws(()=>validateInventory(input));

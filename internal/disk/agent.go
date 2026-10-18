@@ -148,6 +148,11 @@ func (e *Engine) triage(ctx context.Context, p Plan, selected map[string]bool) (
 					if c.Analysis == nil || !slices.ContainsFunc(c.Analysis.Actions, func(a SuggestedAction) bool { return a.Kind == kind }) {
 						return p, errors.New("agent invented an action")
 					}
+					if !slices.ContainsFunc(result.Steps, func(step Evidence) bool {
+						return step.Check == "suggest_action" && step.Outcome == "performed" && step.Detail == r.CandidateID+":"+kind
+					}) {
+						return p, errors.New("agent action lacks suggestion-tool evidence")
+					}
 				}
 				break
 			}

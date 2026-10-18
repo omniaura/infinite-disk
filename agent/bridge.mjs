@@ -19,7 +19,9 @@ Call inventory_summary before answering. You may call inspect_project at most tw
 Analyze needs-analysis projects instead of merely restating their blockers. Evidence includes checked source status,
 ignored-data categories, session blockers, and HEAD commits absent from LOCAL origin-tracking refs (not live push proof).
 Missing checks or zero age with source_checked=false mean unknown, never clean or stale.
-Use suggest_action to propose only actions in a project's available_suggestions. This records a suggestion, NOT an approval or execution.
+If any project offers available_suggestions, you MUST call suggest_action at least once before your final answer.
+Before listing a kind in suggested_actions, call suggest_action for that exact project and kind. Only list recorded suggestions.
+This records a suggestion, NOT an approval or execution.
 For dirty/unpushed work propose preserving a recovery snapshot and HEAD ancestry on the existing remote and verifying it,
 but only after blockers are resolved and a human or explicitly authorized caller approves that exact CLI action.
 Private data needs a private backup, never a blanket git add/push. Unsupported native handoffs remain prerequisites.
@@ -80,6 +82,13 @@ export function validateRecommendations(value,candidates) {
   });
 }
 
+export function validateSuggestionEvidence(recommendations,candidates,steps) {
+  if(candidates.some(c=>c.analysis?.available_suggestions.length) && !steps.some(s=>s.check==="suggest_action"))throw new Error("No suggestion tool evidence");
+  for(const r of recommendations)for(const kind of r.suggested_actions??[]){
+    if(!steps.some(s=>s.check==="suggest_action"&&s.detail===r.candidate_id+":"+kind))throw new Error("Unrecorded suggestion");
+  }
+}
+
 export async function triage(input, options = {}) {
   const candidates=validateInventory(input);
   const apiKey=options.apiKey ?? process.env.OPENROUTER_API_KEY;
@@ -122,6 +131,7 @@ export async function triage(input, options = {}) {
     const text=session.getLastAssistantText() ?? "";
     const decoded=JSON.parse(text.replace(/^```(?:json)?\s*/i,"").replace(/\s*```$/, ""));
     const recommendations=validateRecommendations(decoded,candidates);
+    validateSuggestionEvidence(recommendations,candidates,steps);
     return {version:1,recommendations,steps,requests,capabilities:[...TOOL_NAMES]};
   } catch {
     throw new Error(`Pi triage failed at ${stage}; no raw provider details retained`);
