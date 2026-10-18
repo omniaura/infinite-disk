@@ -399,6 +399,7 @@ func (e *Engine) Scan(ctx context.Context) (Plan, error) {
 		candidate := e.inspectSource(ctx, path, activity)
 		attachSessionsContext(ctx, &candidate, sessions)
 		e.prepareClaudeHandoffs(ctx, &candidate, activity)
+		candidate.Analysis = e.analyzeCandidate(ctx, candidate)
 		p.Candidates = append(p.Candidates, candidate)
 		e.scanAfter = path
 	}

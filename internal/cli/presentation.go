@@ -57,6 +57,14 @@ func label(c disk.Candidate) string {
 }
 func blockerText(s string) string {
 	switch s {
+	case "artifact_contains_private_names":
+		return "Artifact contains potentially private file names; inspect and privately back up before cleanup."
+	case "artifact_contains_nested_repository":
+		return "Artifact contains another repository; preserve it separately."
+	case "artifact_symlink_outside_scope":
+		return "Artifact has a broken or escaping symlink; cannot verify its scope."
+	case "artifact_special_file", "artifact_inspection_incomplete":
+		return "Artifact could not be completely inspected; keep it until checks succeed."
 	case "coding_sessions_require_native_handoff":
 		return "Linked coding sessions need native handoff before removing this checkout."
 	case "coding_session_coverage_incomplete":
@@ -175,6 +183,14 @@ func renderPlan(w io.Writer, p disk.Plan, details bool) {
 				wrapped(styled(w, toneWarning), "    ", blockerText(b))
 			}
 			renderSessionLinks(w, c, details)
+			if c.Analysis != nil {
+				for _, action := range c.Analysis.Actions {
+					if !details && action.Kind != "private_backup" && action.Kind != "inspect_artifacts" {
+						continue
+					}
+					wrapped(w, "    ", "Suggested only: "+action.Summary)
+				}
+			}
 			if details {
 				wrapped(w, "    ", "Path: "+c.Path)
 				fmt.Fprintf(w, "    Select: --project %s\n", plain(c.ID))
@@ -204,6 +220,8 @@ func renderPlan(w io.Writer, p disk.Plan, details bool) {
 		wrapped(styled(w, toneWarning), "! ", warning)
 	}
 	fmt.Fprintln(w, "\nNothing committed, pushed or deleted.")
+	fmt.Fprintln(w, "Resolve blockers: infinite-disk analyze --filter needs-analysis")
+	fmt.Fprintln(w, "Compact automation contract: infinite-disk actions --json")
 	fmt.Fprintln(w, "Build/dependency cleanup: infinite-disk caches scan")
 	fmt.Fprintln(w, "Remove checkouts with verified recovery: infinite-disk apply --review")
 	if details {
@@ -217,6 +235,12 @@ func renderApproval(w io.Writer, c disk.Candidate, preserveOnly bool) {
 		wrapped(styled(w, toneWarning), "  ", "This saved report predates session-link checks. Rescan before approving; removal will be refused.")
 	}
 	renderSessionLinks(w, c, true)
+	if preserveOnly {
+		wrapped(w, "  ", "Source recovery only: the checkout, ignored data and session bindings stay. This does not authorize later removal.")
+		for _, b := range c.Blockers {
+			wrapped(styled(w, toneWarning), "    ", "Removal still blocked: "+blockerText(b))
+		}
+	}
 	if !preserveOnly && len(c.SessionHandoffs) > 0 {
 		wrapped(styled(w, toneReady), "  ", "Sessions: make verified private history backups, quarantine the checkout, then verify Claude's local handoff before deleting. No model calls; no source changes in the surviving project.")
 		var backupBytes uint64

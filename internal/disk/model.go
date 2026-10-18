@@ -28,27 +28,28 @@ type Evidence struct {
 }
 
 type Candidate struct {
-	ID              string          `json:"id"`
-	Path            string          `json:"path"`
-	Name            string          `json:"name"`
-	Kind            string          `json:"kind"`
-	Head            string          `json:"head,omitempty"`
-	Branch          string          `json:"branch,omitempty"`
-	CommonDir       string          `json:"common_dir,omitempty"`
-	RemoteHost      string          `json:"remote_host,omitempty"`
-	RemoteDigest    string          `json:"remote_digest,omitempty"`
-	SizeBytes       uint64          `json:"size_bytes"`
-	SizeComplete    bool            `json:"size_complete"`
-	LastModified    time.Time       `json:"last_modified"`
-	DirtyFiles      int             `json:"dirty_files"`
-	Fingerprint     string          `json:"fingerprint,omitempty"`
-	Eligible        bool            `json:"eligible"`
-	Blockers        []string        `json:"blockers"`
-	Evidence        []Evidence      `json:"evidence"`
-	Sessions        []Session       `json:"sessions,omitempty"`
-	SessionCount    int             `json:"session_count,omitempty"`
-	SessionsChecked bool            `json:"sessions_checked,omitempty"`
-	SessionHandoffs []ClaudeHandoff `json:"session_handoffs,omitempty"`
+	ID              string           `json:"id"`
+	Path            string           `json:"path"`
+	Name            string           `json:"name"`
+	Kind            string           `json:"kind"`
+	Head            string           `json:"head,omitempty"`
+	Branch          string           `json:"branch,omitempty"`
+	CommonDir       string           `json:"common_dir,omitempty"`
+	RemoteHost      string           `json:"remote_host,omitempty"`
+	RemoteDigest    string           `json:"remote_digest,omitempty"`
+	SizeBytes       uint64           `json:"size_bytes"`
+	SizeComplete    bool             `json:"size_complete"`
+	LastModified    time.Time        `json:"last_modified"`
+	DirtyFiles      int              `json:"dirty_files"`
+	Fingerprint     string           `json:"fingerprint,omitempty"`
+	Eligible        bool             `json:"eligible"`
+	Blockers        []string         `json:"blockers"`
+	Evidence        []Evidence       `json:"evidence"`
+	Sessions        []Session        `json:"sessions,omitempty"`
+	SessionCount    int              `json:"session_count,omitempty"`
+	SessionsChecked bool             `json:"sessions_checked,omitempty"`
+	SessionHandoffs []ClaudeHandoff  `json:"session_handoffs,omitempty"`
+	Analysis        *ProjectAnalysis `json:"analysis,omitempty"`
 }
 
 type Space struct {
@@ -75,11 +76,12 @@ type Plan struct {
 }
 
 type Recommendation struct {
-	CandidateID   string   `json:"candidate_id"`
-	Priority      int      `json:"priority"`
-	Decision      string   `json:"decision"`
-	Reason        string   `json:"reason"`
-	ProposedSteps []string `json:"proposed_steps"`
+	CandidateID      string   `json:"candidate_id"`
+	Priority         int      `json:"priority"`
+	Decision         string   `json:"decision"`
+	Reason           string   `json:"reason"`
+	ProposedSteps    []string `json:"proposed_steps"`
+	SuggestedActions []string `json:"suggested_actions,omitempty"`
 }
 
 type Receipt struct {

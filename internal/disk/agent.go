@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"sort"
+	"strings"
 	"time"
 
 	worker "github.com/omniaura/infinite-disk/agent"
@@ -39,6 +41,14 @@ func SetupAgent(ctx context.Context, c Config) error {
 }
 
 func (e *Engine) Triage(ctx context.Context, p Plan) (Plan, error) {
+	return e.triage(ctx, p, nil)
+}
+
+func (e *Engine) TriageSelected(ctx context.Context, p Plan, selected map[string]bool) (Plan, error) {
+	return e.triage(ctx, p, selected)
+}
+
+func (e *Engine) triage(ctx context.Context, p Plan, selected map[string]bool) (Plan, error) {
 	if err := EnsureState(e.Config); err != nil {
 		return p, err
 	}
@@ -47,19 +57,43 @@ func (e *Engine) Triage(ctx context.Context, p Plan) (Plan, error) {
 		return p, errors.New("Pi worker is not installed; run agent setup")
 	}
 	type summary struct {
-		ID         string   `json:"id"`
-		Eligible   bool     `json:"eligible"`
-		AgeDays    int      `json:"age_days"`
-		SizeBytes  uint64   `json:"size_bytes"`
-		DirtyFiles int      `json:"dirty_files"`
-		Blockers   []string `json:"blockers"`
+		ID         string         `json:"id"`
+		Eligible   bool           `json:"eligible"`
+		AgeDays    int            `json:"age_days"`
+		SizeBytes  uint64         `json:"size_bytes"`
+		DirtyFiles int            `json:"dirty_files"`
+		Blockers   []string       `json:"blockers"`
+		Analysis   *agentAnalysis `json:"analysis,omitempty"`
 	}
 	items := []summary{}
-	for _, c := range p.Candidates {
+	candidates := append([]Candidate{}, p.Candidates...)
+	sort.SliceStable(candidates, func(i, j int) bool { return candidates[i].SizeBytes > candidates[j].SizeBytes })
+	for _, c := range candidates {
+		if selected != nil && !selected[c.ID] {
+			continue
+		}
 		if len(items) >= 200 {
 			break
 		}
-		items = append(items, summary{c.ID, c.Eligible, int(e.Now().Sub(c.LastModified).Hours() / 24), c.SizeBytes, c.DirtyFiles, c.Blockers})
+		var analysis *agentAnalysis
+		if c.Analysis != nil {
+			a := c.Analysis
+			analysis = &agentAnalysis{SourceChecked: a.SourceChecked, ChangedFiles: a.ChangedFiles, Commits: a.CommitsNotInOriginTracking, IgnoredCount: a.IgnoredCount, IgnoredComplete: a.IgnoredComplete, Categories: map[string]int{}, Actions: []string{}}
+			for _, entry := range a.Ignored {
+				analysis.Categories[entry.Category]++
+			}
+			for _, action := range a.Actions {
+				analysis.Actions = append(analysis.Actions, action.Kind)
+			}
+		}
+		age := 0
+		if !c.LastModified.IsZero() {
+			age = max(0, int(e.Now().Sub(c.LastModified).Hours()/24))
+		}
+		items = append(items, summary{c.ID, c.Eligible, age, c.SizeBytes, c.DirtyFiles, c.Blockers, analysis})
+	}
+	if len(items) == 0 {
+		return p, nil
 	}
 	input, _ := json.Marshal(struct {
 		Version    int       `json:"version"`
@@ -92,20 +126,28 @@ func (e *Engine) Triage(ctx context.Context, p Plan) (Plan, error) {
 		return p, errors.New("invalid Pi response")
 	}
 	slices.Sort(result.Capabilities)
-	if !slices.Equal(result.Capabilities, []string{"inspect_project", "inventory_summary"}) {
-		return p, errors.New("unexpected Pi capabilities")
+	if !slices.Equal(result.Capabilities, []string{"inspect_project", "inventory_summary", "suggest_action"}) {
+		return p, errors.New("unexpected or outdated Pi capabilities; run agent setup to install the current suggestion-only worker")
 	}
 	seen := map[string]bool{}
 	for _, r := range result.Recommendations {
-		if seen[r.CandidateID] || r.Priority < 1 || r.Priority > 3 || !slices.Contains([]string{"review", "keep", "blocked"}, r.Decision) || len(r.Reason) > 2000 || len(r.ProposedSteps) > 10 {
+		if !slices.ContainsFunc(items, func(item summary) bool { return item.ID == r.CandidateID }) {
+			return p, errors.New("agent invented a project ID")
+		}
+		if seen[r.CandidateID] || r.Priority < 1 || r.Priority > 3 || !slices.Contains([]string{"review", "keep", "blocked", "analyze"}, r.Decision) || len(r.Reason) > 2000 || len(r.ProposedSteps) > 10 || len(r.SuggestedActions) > 10 {
 			return p, errors.New("invalid Pi recommendation")
 		}
 		found := false
 		for _, c := range p.Candidates {
 			if c.ID == r.CandidateID {
 				found = true
-				if !c.Eligible && r.Decision != "blocked" {
+				if !c.Eligible && r.Decision != "blocked" && r.Decision != "analyze" {
 					return p, errors.New("agent attempted to override a safety blocker")
+				}
+				for _, kind := range r.SuggestedActions {
+					if c.Analysis == nil || !slices.ContainsFunc(c.Analysis.Actions, func(a SuggestedAction) bool { return a.Kind == kind }) {
+						return p, errors.New("agent invented an action")
+					}
 				}
 				break
 			}
@@ -114,12 +156,60 @@ func (e *Engine) Triage(ctx context.Context, p Plan) (Plan, error) {
 			return p, errors.New("agent invented a project ID")
 		}
 		seen[r.CandidateID] = true
+		for _, step := range r.ProposedSteps {
+			if len(step) > 500 {
+				return p, errors.New("invalid Pi proposed step")
+			}
+		}
+	}
+	if len(result.Steps) > 1000 {
+		return p, errors.New("Pi step budget exceeded")
+	}
+	inspected := false
+	for _, step := range result.Steps {
+		if !slices.Contains(result.Capabilities, step.Check) || step.Outcome != "performed" || len(step.Detail) > 200 {
+			return p, errors.New("invalid Pi evidence")
+		}
+		switch step.Check {
+		case "inventory_summary":
+			if step.Detail != "" {
+				return p, errors.New("invalid Pi inventory evidence")
+			}
+			inspected = true
+		case "inspect_project":
+			if !slices.ContainsFunc(items, func(item summary) bool { return item.ID == step.Detail }) {
+				return p, errors.New("invalid Pi inspection evidence")
+			}
+		case "suggest_action":
+			id, kind, _ := strings.Cut(step.Detail, ":")
+			if !slices.ContainsFunc(items, func(item summary) bool {
+				return item.ID == id && item.Analysis != nil && slices.Contains(item.Analysis.Actions, kind)
+			}) {
+				return p, errors.New("invalid Pi suggestion evidence")
+			}
+		}
+	}
+	if !inspected {
+		return p, errors.New("Pi did not inspect the metadata inventory")
 	}
 	p.Recommendations = result.Recommendations
 	p.AgentSteps = result.Steps
+	p.AgentSteps = append(p.AgentSteps, Evidence{"pi_coverage", "checked", itoa(len(result.Recommendations)) + " projects advised from " + itoa(len(items)) + " largest metadata records; " + itoa(len(p.Candidates)) + " projects in saved report. Advice is not approval."})
 	p, err := SavePlan(e.Config, p)
 	if err != nil {
 		return p, err
 	}
 	return p, AppendEvent(e.Config, Event{Type: "pi_triage_completed", PlanID: p.ID, Outcome: "metadata_only_report"})
+}
+
+// Explicit provider projection: no paths, names, source, diffs, session text,
+// branches, remote URLs or ignored-file names cross the model boundary.
+type agentAnalysis struct {
+	SourceChecked   bool           `json:"source_checked"`
+	ChangedFiles    *int           `json:"changed_files,omitempty"`
+	Commits         *int           `json:"commits_not_in_origin_tracking,omitempty"`
+	IgnoredCount    int            `json:"ignored_count"`
+	IgnoredComplete bool           `json:"ignored_complete"`
+	Categories      map[string]int `json:"ignored_example_categories"`
+	Actions         []string       `json:"available_suggestions"`
 }

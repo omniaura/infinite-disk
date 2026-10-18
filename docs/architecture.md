@@ -16,7 +16,9 @@ There is deliberately no edge from the scheduler/model to apply. Pi sees opaque 
 
 - `scan --json` returns `Plan`: `version`, `id`, `mode`, `created_at`, `config_digest`, `space`, `candidates`, `warnings`, optional `recommendations` and `agent_steps`.
 - `review --plan DIGEST --json` reads an unchanged private report. Hash/config mismatch fails. Reports are not approval records.
+- `plans --json` lists saved rotating batches. `actions --plan DIGEST --json` projects compact metadata and Go-built argv suggestions without mutating the full plan. `analyze` refreshes selected evidence, saves a new digest, and never executes suggestions. See [analysis/approval contract](advisory-analysis.md).
 - `apply --plan DIGEST --project ID --approve-plan DIGEST --json` is the privileged, explicit one-project operation. A host must obtain consent first; this flag is not a substitute for its consent UI.
+- `--non-interactive` fails immediately if exact per-project approval is absent. Cache apply supports the same flags in its separate report namespace. Source-only preservation can retain removal-blocked checkouts only through the narrow deterministic source-safe allowlist; it never clears removal blockers.
 - Apply returns a `Receipt` with approved timestamp, actual steps/outcomes, verified recovery commit/ref, private bundle checksum/path when applicable, quarantine path if interrupted, and before/after free bytes.
 - `restore` reads a private receipt, verifies bundle SHA-256, and restores to a new destination without contacting the remote.
 - `recover --plan DIGEST --project ID` restores a journaled interrupted quarantine without overwriting anything or rewinding conversation history.

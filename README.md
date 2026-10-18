@@ -52,9 +52,28 @@ infinite-disk caches apply    # approve exact directories individually
 # Or select one: infinite-disk caches apply --project ARTIFACT_ID
 ```
 
-This flow **keeps source, Git history and the checkout**. It never invokes Kondo's recursive delete/all mode and never commits or uploads. Every artifact must be inside a configured project, entirely Git-ignored, untracked, inactive and older than the configured inactivity period. Private-state names, nested Git, symlinks, unreadable/incomplete checks and unsupported managed worktrees block cleanup. Every exact path and metadata fingerprint is rechecked after approval. Symlink-heavy dependency trees may therefore remain blocked in this first adapter. Kondo's rounded logical sizes are not used as guaranteed reclaimed bytes; Infinite Disk measures allocated sizes separately.
+This flow **keeps source, Git history and the checkout**. It never invokes Kondo's recursive delete/all mode and never commits or uploads. Every artifact must be inside a configured project, entirely Git-ignored, untracked, inactive and older than the configured inactivity period. Private-state names, nested Git, broken/escaping symlinks, unreadable/incomplete checks and unsupported managed worktrees block cleanup. Internal package-manager links are hashed, never traversed for deletion, and must resolve inside the exact artifact directory. Every exact path and metadata fingerprint is rechecked after approval. Kondo's rounded logical sizes are not used as guaranteed reclaimed bytes; Infinite Disk measures allocated sizes separately.
 
 These are normally regenerable artifacts, but custom irreplaceable data inside an artifact directory is still your responsibility. Inspect the displayed paths and stop the project's tools before approving. Deleted artifacts are **not backed up**: reinstall dependencies/rebuild afterward. Same-user concurrent filesystem mutation cannot be fully excluded. Partial removal and interruption can leave a partly cleaned artifact; source remains outside the approved paths. Cache reports are separate from checkout reports and use the same 50-report retention policy; operation logs and receipts remain private. The monitor still only runs checkout audits, not this potentially expensive Kondo pass.
+
+For an explicitly authorized automation, `caches apply --plan CACHE_DIGEST --project ARTIFACT_ID --approve-plan CACHE_DIGEST --non-interactive --json` approves one exact artifact without a prompt. There is no batch approve-all. Wrong/expired plans, blocked IDs, changed paths and missing approval fail; `--non-interactive` never waits for stdin.
+
+## Analyze, suggest, then approve
+
+```sh
+infinite-disk plans                            # rotating saved batches; do not sum them
+infinite-disk actions --filter needs-analysis  # compact suggestions, largest first
+infinite-disk analyze --filter needs-analysis --limit 20
+infinite-disk actions --plan EXACT_DIGEST --json --limit 10
+# Optional paid prioritization of metadata-backed suggestions:
+infinite-disk analyze --project PROJECT_ID --agent
+```
+
+New scans/monitor audits automatically collect bounded advisory analysis for every inspected project. `analyze` refreshes selected projects in the full saved report; it does not apply anything or reset the original report's expiry. It separates checked source status from unknown, compares HEAD with **local** origin-tracking refs (not live proof of push), classifies bounded ignored-entry examples, and proposes concrete prerequisites. Build/dependency classifications are hints for Kondo inspection, not a new cleanup catalog or deletion permission. Private data stays private; no blanket `git add` or model-generated shell command is executed.
+
+Suggestions distinguish available CLI operations from manual/unsupported prerequisites. A source-safe, idle project may offer **preserve source only** even when ignored private data, recency or a missing session handoff blocks removal. This still needs exact approval, pushes only the checked source snapshot and HEAD ancestry to the existing origin, and keeps the entire checkout, ignored files and sessions untouched. It does not clear a removal blocker. Active projects, unknown activity, unsafe source, filters, special Git storage and other unverified states cannot use this narrower action.
+
+`actions --json` returns a compact versioned **suggestions-only** envelope with `plan_id`, total/matching/returned counts, project evidence, optional Pi advice, and exact command **argv arrays**. These are proposals, not grants of authority. A human or explicitly authorized agent must separately approve an action. Never execute model-written command text. `--limit` and `--filter all|ready|needs-analysis` keep automation output bounded without constructing an invalid filtered plan. Use `plans --json` to address an earlier rotating batch by its exact digest. See [the analysis/approval contract](docs/advisory-analysis.md).
 
 ## Approve one project at a time
 
@@ -135,7 +154,7 @@ infinite-disk scan --agent
 # Or: infinite-disk triage --plan latest
 ```
 
-Pi receives **only opaque project IDs, age, estimated bytes, dirty-file counts, and mechanical blockers**. No filenames, source, repository names, branches, remotes, or local paths are sent. Its only tools are `inventory_summary` and `inspect_project`; filesystem/shell tools, extensions, skills, project instructions, persistent sessions, automatic retries, compaction, and cache warming are disabled. Requests are capped at four, output at 1,024 tokens/request, inspections at two, and the run at 60 seconds (75-second parent deadline). This bounds calls, **not a guaranteed dollar spend**. Provider pricing and metadata exposure still apply.
+Pi receives **only opaque project IDs, age, estimated bytes, checked-source/count facts, local-tracking commit counts, ignored-example category counts, offered action kinds and mechanical blockers**. No filenames, source, repository names, branches, remotes, session text or local paths are sent. Its only tools are `inventory_summary`, `inspect_project` and `suggest_action`; the last records a suggestion with `approved:false, executed:false`, never calls the CLI. Filesystem/shell tools, extensions, skills, project instructions, persistent sessions, automatic retries, compaction, and cache warming are disabled. At most the 200 largest project metadata records are offered; `agent_steps` records actual advisory coverage. Requests are capped at four, output at 4,096 tokens/request, inspections at two, and the run at 60 seconds (75-second parent deadline). This bounds calls, **not a guaranteed dollar spend**. Provider pricing and metadata exposure still apply. Rerun `agent setup` after upgrading an older worker.
 
 Pi recommendations are advisory. They cannot override a blocker or authorize a Git write/deletion. Reports distinguish performed checks from proposed future steps. Pi 1.3.0 is pinned with a lockfile; the architecture follows Ditto Desktop's Pi integration, with a newer dependency version to address an upstream transitive advisory.
 
