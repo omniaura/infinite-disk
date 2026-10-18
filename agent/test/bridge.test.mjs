@@ -1,9 +1,31 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
-import {TOOL_NAMES,SYSTEM_PROMPT,validateInventory,createInventoryTools,validateRecommendations,validateSuggestionEvidence} from "../bridge.mjs";
+import {TOOL_NAMES,SYSTEM_PROMPT,validateInventory,createInventoryTools,validateRecommendations,validateSuggestionEvidence,providerSettings,triage} from "../bridge.mjs";
 
 const candidate={id:"abcdef0123456789",eligible:true,age_days:30,size_bytes:5*2**30,dirty_files:2,blockers:[]};
+test("Ditto provider accepts only explicit first-party routing",()=>{
+ const input={provider:"ditto",model:"gm/gpt-6-luna",base_url:"https://router.heyditto.ai/v1"};
+ const selected=providerSettings(input);assert.equal(selected.env,"DITTO_INFERENCE_API_KEY");assert.equal(selected.registration.models[0].id,input.model);
+ for(const base_url of ["https://evil.example/v1","http://router.heyditto.ai/v1","https://router.heyditto.ai/v1?x=y"])assert.throws(()=>providerSettings({...input,base_url}));
+ assert.throws(()=>providerSettings({...input,provider:"other"}));assert.throws(()=>providerSettings({...input,model:undefined}));
+ assert.equal(providerSettings({}).provider,"openrouter");
+});
+test("real Pi runtime uses Ditto tool-call wire format without external tools or private metadata",async()=>{
+ const original=globalThis.fetch, calls=[];
+ globalThis.fetch=async(url,init)=>{
+  calls.push({url:String(url),body:JSON.parse(init.body),headers:new Headers(init.headers)});
+  const delta=calls.length===1?{role:"assistant",tool_calls:[{index:0,id:"call_inventory",type:"function",function:{name:"inventory_summary",arguments:"{}"}}]}:
+   {role:"assistant",content:JSON.stringify({recommendations:[{candidate_id:candidate.id,priority:1,decision:"review",reason:"Fixture metadata only",proposed_steps:["Ask approval"],suggested_actions:[]}]})};
+  const chunk={id:"chatcmpl-fixture",object:"chat.completion.chunk",created:1,model:"gm/gpt-6-luna",choices:[{index:0,delta,finish_reason:calls.length===1?"tool_calls":"stop"}]};
+  return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`,{headers:{"content-type":"text/event-stream"}});
+ };
+ try {
+  const result=await triage({version:1,provider:"ditto",base_url:"https://router.heyditto.ai/v1",model:"gm/gpt-6-luna",candidates:[{...candidate,path:"private-path",source:"private-source"}]},{apiKey:"ditto_inf_fixture_not_real"});
+  assert.equal(result.requests,2);assert.equal(result.recommendations.length,1);assert.ok(result.steps.some(x=>x.check==='inventory_summary'));
+  for(const call of calls){assert.equal(call.url,"https://router.heyditto.ai/v1/chat/completions");assert.equal(call.headers.get('authorization'),'Bearer ditto_inf_fixture_not_real');assert.equal(call.body.model,'gm/gpt-6-luna');assert.deepEqual(call.body.tools.map(x=>x.function.name),TOOL_NAMES);assert.equal(call.body.max_completion_tokens,4096);assert.ok(!JSON.stringify(call.body).includes('private-path'));assert.ok(!JSON.stringify(call.body).includes('private-source'));}
+ } finally {globalThis.fetch=original;}
+});
 test("inventory projects away all private metadata",()=>{
  const data=validateInventory({version:1,candidates:[{...candidate,path:"/private/project",name:"secret project",source:"private source",remote:"private remote"}]});
  assert.deepEqual(data,[candidate]);assert.ok(!JSON.stringify(data).includes("private"));
