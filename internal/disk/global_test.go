@@ -264,12 +264,14 @@ func TestGlobalRevalidationRejectsChangesAndExpiredApproval(t *testing.T) {
 }
 
 func TestGlobalManifestKeepsConcurrentNewAndRewrittenFiles(t *testing.T) {
-	for _, mutation := range []string{"new", "rewrite", "directory swap"} {
+	for _, mutation := range []string{"new", "rewrite", "directory swap", "producer starts", "cancelled"} {
 		t.Run(mutation, func(t *testing.T) {
 			f := newGlobalFixture(t)
 			p := f.scan(t)
 			c := globalCandidate(t, p, f.cache)
 			calls := 0
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
 			outside := filepath.Join(f.host.home, "outside")
 			write(t, filepath.Join(outside, "compiled"), "private")
 			f.e.globalUse = func(context.Context) globalUse {
@@ -280,6 +282,10 @@ func TestGlobalManifestKeepsConcurrentNewAndRewrittenFiles(t *testing.T) {
 						write(t, filepath.Join(f.cache, "new-after-approval"), "preserve")
 					case "rewrite":
 						write(t, filepath.Join(f.cache, "aa/compiled"), "newly generated")
+					case "producer starts":
+						f.use.processes = []string{"go"}
+					case "cancelled":
+						cancel()
 					case "directory swap":
 						if err := os.Rename(filepath.Join(f.cache, "aa"), filepath.Join(f.host.home, "saved")); err != nil {
 							t.Fatal(err)
@@ -291,7 +297,7 @@ func TestGlobalManifestKeepsConcurrentNewAndRewrittenFiles(t *testing.T) {
 				}
 				return f.use
 			}
-			r, err := f.e.ApplyGlobal(context.Background(), p, c.ID, p.ID)
+			r, err := f.e.ApplyGlobal(ctx, p, c.ID, p.ID)
 			if mutation == "new" {
 				if err != nil {
 					t.Fatal(err)
@@ -370,7 +376,7 @@ func TestGlobalMountInventoryFailsClosed(t *testing.T) {
 	if err != nil || !a.Known || len(a.Paths) != 1 {
 		t.Fatal(a, err)
 	}
-	for _, bad := range []string{"", `<plist><dict/></plist>`, strings.ReplaceAll(good, "/fixture/mounted.dmg", "relative.dmg"), strings.ReplaceAll(good, "<string>/fixture/mounted.dmg</string>", "<false/>"), good[:len(good)-5], strings.ReplaceAll(good, "<key>images</key>", "<key>images</key><array/><key>images</key>")} {
+	for _, bad := range []string{"", good + "garbage", good + "<plist/>", `<plist><dict/></plist>`, strings.ReplaceAll(good, "/fixture/mounted.dmg", "relative.dmg"), strings.ReplaceAll(good, "<string>/fixture/mounted.dmg</string>", "<false/>"), good[:len(good)-5], strings.ReplaceAll(good, "<key>images</key>", "<key>images</key><array/><key>images</key>")} {
 		if a, err := parseGlobalMounts([]byte(bad)); err == nil || a.Known {
 			t.Fatal("unsafe mounted inventory accepted", bad)
 		}

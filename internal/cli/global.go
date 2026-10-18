@@ -83,6 +83,9 @@ func globalCommand(load func() (*disk.Engine, error), asJSON *bool) *cobra.Comma
 		if approval == "" {
 			wrapped(styled(cmd.ErrOrStderr(), toneWarning), "", fmt.Sprintf("Permanently remove approved files in %s (%s allocated estimate)?", selected.Path, size(selected.SizeBytes)))
 			fmt.Fprintln(cmd.ErrOrStderr(), "No backup is created. Cache directories, newly generated files, worktrees and app data stay.")
+			if selected.Kind == "global-installer" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "Confirm this downloaded image/package is disposable; its contents are not inspected.")
+			}
 			fmt.Fprint(styled(cmd.ErrOrStderr(), tonePrompt), "Approve this exact target? [y/N] ")
 			line, err := readLine(cmd.Context(), bufio.NewReader(cmd.InOrStdin()))
 			if errors.Is(err, io.EOF) {
