@@ -365,6 +365,9 @@ func (e *Engine) saveArchive(r PrivateArchive) error {
 }
 
 func (e *Engine) privateLinks(project string) ([]string, error) {
+	if !validCandidateID.MatchString(project) {
+		return nil, errors.New("invalid private archive project identity")
+	}
 	name := filepath.Join(e.Config.StateDir, "private-archives", "projects", project+".json")
 	if noSymlinkAncestors(name) != nil {
 		return nil, errors.New("unsafe private archive index")
@@ -388,6 +391,20 @@ func (e *Engine) privateLinks(project string) ([]string, error) {
 		seen[id] = true
 	}
 	return ids, nil
+}
+func (e *Engine) PrivateReceipt(id string) (PrivateArchive, error) {
+	var r PrivateArchive
+	if !validPlanID.MatchString(id) {
+		return r, errors.New("invalid private plan ID")
+	}
+	b, err := readPrivateFile(filepath.Join(e.privateDir(id), "receipt.json"), 1<<20)
+	if err != nil {
+		return r, err
+	}
+	if json.Unmarshal(b, &r) != nil || r.Version != 1 || r.PlanID != id || !slices.Contains([]string{"in_progress", "needs_recovery", "verified_local_archive", "restored"}, r.Status) {
+		return r, errors.New("invalid private archive receipt")
+	}
+	return r, nil
 }
 func (e *Engine) linkPrivate(p PrivatePlan) error {
 	ids, err := e.privateLinks(p.Candidate.ID)

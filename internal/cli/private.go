@@ -2,9 +2,11 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/omniaura/infinite-disk/internal/disk"
 	"github.com/spf13/cobra"
+	"os"
 )
 
 func privateCommand(load func() (*disk.Engine, error), asJSON *bool) *cobra.Command {
@@ -45,10 +47,26 @@ func privateCommand(load func() (*disk.Engine, error), asJSON *bool) *cobra.Comm
 				return err
 			}
 			if action == "review" {
+				r, receiptErr := e.PrivateReceipt(id)
+				var receipt *disk.PrivateArchive
+				if receiptErr == nil {
+					receipt = &r
+				} else if !errors.Is(receiptErr, os.ErrNotExist) {
+					return receiptErr
+				}
 				if *asJSON {
-					return json.NewEncoder(cmd.OutOrStdout()).Encode(p)
+					return json.NewEncoder(cmd.OutOrStdout()).Encode(struct {
+						Version int                  `json:"version"`
+						Plan    disk.PrivatePlan     `json:"plan"`
+						Receipt *disk.PrivateArchive `json:"receipt,omitempty"`
+					}{1, p, receipt})
 				}
 				renderPrivate(cmd, p)
+				if receipt != nil {
+					fmt.Fprintf(cmd.OutOrStdout(), "  Archive status: %s; %d roots verified.\n", plain(receipt.Status), len(receipt.Verified))
+				} else {
+					fmt.Fprintln(cmd.OutOrStdout(), "  Archive status: not attempted; source paths unchanged.")
+				}
 				return nil
 			}
 			if action == "restore" {

@@ -212,6 +212,9 @@ func saveReceipt(c Config, r Receipt) error {
 // Apply requires an explicitly selected project and the exact approved plan ID.
 // The scheduler and Pi worker never call it.
 func (e *Engine) Apply(ctx context.Context, plan Plan, candidateID, approvedPlan string, remove bool) (r Receipt, err error) {
+	if !validCandidateID.MatchString(candidateID) {
+		return r, errors.New("invalid project identity")
+	}
 	if approvedPlan != plan.ID || planID(plan) != plan.ID || plan.ConfigDigest != ConfigDigest(e.Config) {
 		return r, errors.New("exact unchanged plan approval is required")
 	}
@@ -225,7 +228,7 @@ func (e *Engine) Apply(ctx context.Context, plan Plan, candidateID, approvedPlan
 			break
 		}
 	}
-	if candidate == nil || (remove && !candidate.Eligible) || (!remove && !CanPreserveSource(*candidate)) {
+	if candidate == nil || candidate.ID != pathID(candidate.Path) || (remove && !candidate.Eligible) || (!remove && !CanPreserveSource(*candidate)) {
 		return r, errors.New("project is not an eligible candidate in this plan")
 	}
 	if !candidate.SessionsChecked {
