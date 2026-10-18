@@ -604,6 +604,10 @@ func (e *Engine) RestorePrivate(ctx context.Context, id, approval string) error 
 	if err != nil || !s.IsDir() {
 		return errors.New("restore the source checkout first")
 	}
+	stateInfo, stateErr := os.Stat(e.Config.StateDir)
+	if stateErr != nil || !sameDevice(s, stateInfo) {
+		return errors.New("private restore requires the original same-filesystem location")
+	}
 	a := e.Activity(ctx)
 	if !a.Known || a.Busy(p.Candidate.Path) {
 		return errors.New("restore requires an idle checkout")
@@ -642,7 +646,9 @@ func (e *Engine) RestorePrivate(ctx context.Context, id, approval string) error 
 		if err = os.MkdirAll(filepath.Dir(dst), 0700); err != nil {
 			return err
 		}
-		staging, err := os.MkdirTemp(filepath.Dir(dst), ".infinite-disk-restore-")
+		// A failed restore must not leave private bytes as untracked source
+		// that another cleanup/source-preservation command could upload.
+		staging, err := os.MkdirTemp(e.privateDir(id), ".restore-")
 		parentInfo, parentErr := os.Stat(filepath.Dir(dst))
 		if parentErr != nil || !sameDevice(s, parentInfo) {
 			return errors.New("private restore crosses a filesystem")
@@ -697,17 +703,21 @@ func copyPrivateTree(ctx context.Context, src, dst string) error {
 	if !s.Mode().IsRegular() {
 		return errors.New("unsupported private restore entry")
 	}
-	fd, err := syscall.Open(src, syscall.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	fd, err := syscall.Open(src, syscall.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return err
 	}
 	in := os.NewFile(uintptr(fd), src)
 	defer in.Close()
+	opened, err := in.Stat()
+	if err != nil || !os.SameFile(s, opened) {
+		return errors.New("private restore source replaced")
+	}
 	out, err := os.OpenFile(dst, os.O_CREATE|os.O_EXCL|os.O_WRONLY, s.Mode().Perm())
 	if err != nil {
 		return err
 	}
-	n, copyErr := io.Copy(out, io.LimitReader(in, s.Size()+1))
+	n, copyErr := io.Copy(out, privateContextReader{ctx, io.LimitReader(in, s.Size()+1)})
 	if copyErr == nil && n != s.Size() {
 		copyErr = errors.New("private restore source size changed")
 	}
@@ -723,4 +733,16 @@ func copyPrivateTree(ctx context.Context, src, dst string) error {
 		return closeErr
 	}
 	return os.Chtimes(dst, s.ModTime(), s.ModTime())
+}
+
+type privateContextReader struct {
+	ctx context.Context
+	r   io.Reader
+}
+
+func (r privateContextReader) Read(b []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.r.Read(b)
 }

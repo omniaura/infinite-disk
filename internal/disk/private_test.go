@@ -302,3 +302,40 @@ func TestPrivateArchiveWithClaudeHandoffAndUnfinishedSource(t *testing.T) {
 	exists(t, s.Store)
 	exists(t, filepath.Join(f.e.privateDir(archive.ID), "payload/.env"))
 }
+
+func TestPrivateRestoreRaceKeepsStagingOutsideSource(t *testing.T) {
+	f, _, a := privateFixture(t)
+	ctx := context.Background()
+	if _, err := f.e.ArchivePrivate(ctx, a.ID, a.ID); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	f.e.Activity = func(context.Context) Activity {
+		calls++
+		if calls == 2 {
+			write(t, filepath.Join(f.repo, ".env"), "newly created working data")
+		}
+		return Activity{Known: true}
+	}
+	if err := f.e.RestorePrivate(ctx, a.ID, a.ID); err == nil {
+		t.Fatal("racing destination overwritten")
+	}
+	data, _ := os.ReadFile(filepath.Join(f.repo, ".env"))
+	if string(data) != "newly created working data" {
+		t.Fatal("new work overwritten")
+	}
+	files, _ := os.ReadDir(f.repo)
+	for _, entry := range files {
+		if strings.HasPrefix(entry.Name(), ".infinite-disk-restore-") {
+			t.Fatal("private staging exposed as source")
+		}
+	}
+	stages, _ := filepath.Glob(filepath.Join(f.e.privateDir(a.ID), ".restore-*"))
+	if len(stages) != 1 {
+		t.Fatal("private staged copy not retained")
+	}
+	exists(t, filepath.Join(f.e.privateDir(a.ID), "payload/.env"))
+	if status := runGit(t, f.repo, "status", "--porcelain"); status != "" {
+		t.Fatal("private copies became untracked source", status)
+	}
+}
