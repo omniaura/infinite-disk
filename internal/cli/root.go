@@ -197,6 +197,15 @@ func New(version string) *cobra.Command {
 			}
 			if !asJSON {
 				fmt.Fprintf(styled(cmd.OutOrStdout(), toneReady), "%s: %s; verified recovery %s\n", c.ID, r.Result, r.RecoveryRef)
+				if len(r.SessionHandoffs) > 0 {
+					native := 0
+					for _, h := range r.SessionHandoffs {
+						if h.Status == "native_verified" {
+							native++
+						}
+					}
+					fmt.Fprintf(styled(cmd.OutOrStdout(), toneReady), "  %d session histories preserved; %d native handoffs verified. Parent-workspace sessions stay in place.\n", len(r.SessionHandoffs), native)
+				}
 			}
 		}
 		if asJSON {
@@ -231,6 +240,22 @@ func New(version string) *cobra.Command {
 	_ = restore.MarkFlagRequired("project")
 	_ = restore.MarkFlagRequired("to")
 	root.AddCommand(restore)
+	var recoverPlan, recoverProject string
+	recoverCommand := &cobra.Command{Use: "recover", Short: "Restore an interrupted quarantine to its original path; never overwrite", RunE: func(cmd *cobra.Command, _ []string) error {
+		e, err := load()
+		if err != nil {
+			return err
+		}
+		if err := e.RecoverQuarantine(cmd.Context(), recoverPlan, recoverProject); err != nil {
+			return err
+		}
+		return print(cmd, map[string]any{"version": 1, "result": "quarantine_restored"})
+	}}
+	recoverCommand.Flags().StringVar(&recoverPlan, "plan", "", "Receipt plan ID")
+	recoverCommand.Flags().StringVar(&recoverProject, "project", "", "Receipt project ID")
+	_ = recoverCommand.MarkFlagRequired("plan")
+	_ = recoverCommand.MarkFlagRequired("project")
+	root.AddCommand(recoverCommand)
 	configuration := &cobra.Command{Use: "config", Short: "Initialize or inspect explicit discovery and safety settings"}
 	root.AddCommand(configuration)
 	var roots []string

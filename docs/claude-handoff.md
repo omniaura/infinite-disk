@@ -1,0 +1,51 @@
+# Claude cleanup and session continuity
+
+Tracks [#6](https://github.com/omniaura/infinite-disk/issues/6). Default scans and the native monitor remain report-only. Each checkout requires approval of its exact saved plan, including session history and destination identities.
+
+## Approved operation
+
+1. Recheck source, activity, all supported provider scopes, native version, unique session IDs, complete session files and destination Git identity.
+2. Preserve unfinished source on the existing approved origin; verify the exact recovery commit remotely and the local bundle when applicable.
+3. Copy the original transcript plus its external session sidecars, subagents, tasks, file history and session environment into private local recovery storage. SHA-256 readback and fsync precede staging. Source contents/history never go to Pi or public logs.
+4. Journal quarantine intent before moving anything. Use `git worktree move` for linked worktrees, same-volume rename for independent clones. The original pathname is now absent, but files are recoverable.
+5. Invoke tested Claude Code 2.1.302 in the surviving project with a fixed local command, empty tools/MCP, bare mode, hooks disabled, no inherited credentials, a dummy loopback API endpoint, and zero maximum model turns. Claude itself clears its gone-worktree binding. Infinite Disk never rewrites its event store.
+6. Require native structured initialization with the same session ID and exact destination cwd, a zero-turn/zero-cost success, on-disk cleared binding, unchanged original transcript prefix, and unchanged sidecars. Independently resume again by normal session ID, not only explicit transcript path. Save the preferred reopening route automatically.
+7. Recheck activity, source/private state, session inventory and backup integrity. Only then remove the quarantine. A durable private receipt links original checkout, session ID, backup manifest, surviving destination and source recovery commit.
+
+A surviving parent workspace session stays in its parent. Its history is backed up and linked to the child's recovery, but no native session is started or moved for it. Removing a child repo does not orphan that parent cwd.
+
+## Scope and limits
+
+Supported layouts are repo-local `.claude/worktrees/` and `.worktrees/claude-*`, including stack child clones. Linked worktrees must resolve to the primary Git checkout. Independent child clones require exactly one structurally matching primary checkout with the same origin identity. Destinations cannot be symlinks or inside the removed checkout. Target changes invalidate approval; the tool does not reset, merge, check out a branch, or restore old code over current work.
+
+Native history stays in Claude's original storage namespace. This is **not** migration of the project picker or a silent conversation fork. Claude's documented global ID lookup and cleared binding allow the same conversation to continue from the surviving project. Use the saved route for an explicit destination:
+
+```sh
+infinite-disk sessions resume --provider claude --session SESSION_ID --launch
+```
+
+That optional interactive launch has its own approval and normal provider permissions/costs. In contrast, automatic cleanup only runs the restricted zero-turn maintenance invocation. No normal model turn, pending task, shell command, subagent, or hook is intentionally resumed by cleanup. Native version drift, any inability to verify this contract, unsupported providers, more than eight linked sessions, unknown storage, symlinks, active sessions, or session backup budgets (512 MiB / 5,000 files per session) keep the checkout.
+
+App-owned Desktop rebinding, encrypted remote archives, and arbitrary custom provider stores are not claimed. A local backup does not survive disk loss; private backups/receipts have no automatic expiry. Restoring historical source remains a separate explicit action.
+
+## Interruption recovery
+
+Ordinary failure/Ctrl+C attempts a bounded rollback even after cancellation. SIGKILL, power loss or failed rollback can leave a journaled quarantine. Inspect the private receipt, then restore it without overwriting anything:
+
+```sh
+infinite-disk recover --plan PLAN_ID --project PROJECT_ID
+```
+
+Recovery restores checkout placement only. It never rolls back a conversation, deletes backups or starts an agent. If the original path has reappeared or activity is unknown, recovery refuses. Native session metadata already cleared during a partial operation may stay cleared; original conversation bytes and source remain recoverable.
+
+## Verification
+
+Ordinary fixture tests cover actual approved removal, remote source readback, byte-exact backups, preserved primary branch/index, native failures, uncleared bindings, changed source/private state/sidecars/target, duplicate IDs, symlinks, cancellation rollback and crash-quarantine recovery. The opt-in installed-native smoke uses only disposable conversations, an isolated config and a loopback dummy endpoint:
+
+```sh
+INFINITE_DISK_NATIVE_CLAUDE_TEST=1 go test ./internal/disk -run '^TestNativeClaudeOfflineCleanup$' -count=1 -v
+```
+
+It removes a fixture checkout, verifies native session continuity and disabled hooks, then independently restores the private archive into a fresh native config and verifies both transcript-path and normal session-ID resume. No real user session or paid provider is involved.
+
+Sources: [Claude missing-worktree binding behavior](https://code.claude.com/docs/en/worktrees), [global session lookup and duplicate identity handling](https://code.claude.com/docs/en/sessions), and the installed Claude 2.1.302 CLI plus official Agent SDK 0.3.302 declarations. Internal metadata formats are version-specific, not a general supported write API.

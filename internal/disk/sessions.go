@@ -13,21 +13,24 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
+	"unicode/utf16"
 )
 
 // Session discovery deliberately excludes titles, prompts, messages, and model
 // output. These records stay local and are never included in Pi's inventory.
 type Session struct {
-	Provider   string `json:"provider"`
-	ID         string `json:"id"`
-	Checkout   string `json:"checkout,omitempty"`
-	Store      string `json:"store"`
-	ProjectKey string `json:"project_key,omitempty"`
-	Primary    string `json:"primary,omitempty"`
-	Source     string `json:"source,omitempty"`
-	Originator string `json:"originator,omitempty"`
+	Provider      string `json:"provider"`
+	ID            string `json:"id"`
+	Checkout      string `json:"checkout,omitempty"`
+	Store         string `json:"store"`
+	ProjectKey    string `json:"project_key,omitempty"`
+	Primary       string `json:"primary,omitempty"`
+	Source        string `json:"source,omitempty"`
+	Originator    string `json:"originator,omitempty"`
+	WorkspaceHash string `json:"workspace_hash,omitempty"`
 }
 
 type SessionInventory struct {
@@ -45,15 +48,46 @@ func sessionPath(path string) bool {
 // Claude and Cursor project namespaces are lossy encodings. They are useful
 // for conservative positive matches, never for reconstructing a missing path.
 func projectKey(path string) string {
-	return strings.Map(func(r rune) rune {
+	var key strings.Builder
+	for _, r := range utf16.Encode([]rune(path)) {
 		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
-			return r
+			key.WriteByte(byte(r))
+		} else {
+			key.WriteByte('-')
 		}
-		return '-'
-	}, path)
+	}
+	return key.String()
+}
+
+// Claude's documented long-path namespace uses its JS string hash suffix.
+// Preserve the raw encoding helper for Cursor's different namespace rules.
+func claudeProjectKey(path string) string {
+	key := projectKey(path)
+	if len(key) <= 200 {
+		return key
+	}
+	var h int32
+	for _, unit := range utf16.Encode([]rune(path)) {
+		h = h*31 + int32(unit)
+	}
+	abs := int64(h)
+	if abs < 0 {
+		abs = -abs
+	}
+	return key[:200] + "-" + strconv.FormatInt(abs, 36)
 }
 
 func (s Session) Matches(path string) bool {
+	if s.WorkspaceHash != "" {
+		if s.WorkspaceHash == cursorHash(path) {
+			return true
+		}
+		for parent := filepath.Dir(path); parent != filepath.Dir(parent); parent = filepath.Dir(parent) {
+			if enclosingWorktree(parent, path) && s.WorkspaceHash == cursorHash(parent) {
+				return true
+			}
+		}
+	}
 	if s.Checkout != "" && (within(path, s.Checkout) || enclosingWorktree(s.Checkout, path)) {
 		return true
 	}
@@ -167,7 +201,7 @@ func ReadSessions(ctx context.Context, home string) SessionInventory {
 		if scanner.Err() != nil {
 			warn("Claude Code header")
 		}
-		if s.Checkout != "" && projectKey(s.Checkout) != s.ProjectKey {
+		if s.Checkout != "" && projectKey(s.Checkout) != s.ProjectKey && claudeProjectKey(s.Checkout) != s.ProjectKey {
 			// The transcript may have moved natively. A historical header must
 			// not be presented as its current cwd or called an orphan.
 			s.Checkout = ""
@@ -197,7 +231,12 @@ func ReadSessions(ctx context.Context, home string) SessionInventory {
 	walk("Cursor", cursor, func(path string, d fs.DirEntry) error {
 		if d.IsDir() {
 			if filepath.Base(filepath.Dir(path)) == "agent-transcripts" {
-				warn("Cursor nested transcript")
+				id := d.Name()
+				store := filepath.Join(path, id+".jsonl")
+				if info, err := os.Lstat(store); !sessionID.MatchString(id) || err != nil || !info.Mode().IsRegular() {
+					return errors.New("unsupported nested Cursor session")
+				}
+				result.Sessions = append(result.Sessions, Session{Provider: "Cursor", ID: id, Store: store, ProjectKey: filepath.Base(filepath.Dir(filepath.Dir(path)))})
 				return filepath.SkipDir
 			}
 			if filepath.Dir(path) == cursor || path == cursor || d.Name() == "agent-transcripts" {
@@ -253,14 +292,12 @@ func ReadSessions(ctx context.Context, home string) SessionInventory {
 			}
 		}
 	}
-	// Don't misrepresent opaque/untested stores as having no linked sessions.
+	readAdditionalSessionScopes(ctx, home, &result, warn, walk)
+	// Don't misrepresent remaining opaque/untested stores as empty. Known
+	// read-only scope adapters above do not authorize native deletion for them.
 	for _, store := range []struct{ provider, path string }{
-		{"Cursor CLI", filepath.Join(home, ".cursor", "chats")},
-		{"Emdash", filepath.Join(home, "Library", "Application Support", "emdash", "emdash4.db")},
 		{"Emdash", filepath.Join(home, ".config", "emdash")},
-		{"Pi", filepath.Join(home, ".pi", "agent", "sessions")},
 		{"Grok Bot", filepath.Join(home, ".grokbot", "sessions")},
-		{"OpenCode", filepath.Join(home, ".local", "share", "opencode")},
 	} {
 		if info, err := os.Lstat(store.path); err == nil {
 			if info.IsDir() {
@@ -328,6 +365,22 @@ func (e *Engine) SessionInventory(ctx context.Context) SessionInventory {
 		return SessionInventory{Warnings: []string{"Coding-session home is unavailable"}}
 	}
 	result := ReadSessions(ctx, home)
+	for _, s := range result.Sessions {
+		if s.WorkspaceHash == "" {
+			continue
+		}
+		versionCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		cmd := exec.CommandContext(versionCtx, "cursor-agent", "--version")
+		out := &cappedBuffer{limit: 4096}
+		cmd.Stdout = out
+		err := cmd.Run()
+		cancel()
+		if err != nil || out.overflow || strings.TrimSpace(out.String()) != "2026.05.28-a70ca7c" {
+			result.Complete = false
+			result.Warnings = append(result.Warnings, "Cursor CLI namespace version is unverified; checkout removal requires native handoff")
+		}
+		break
+	}
 	for name, standard := range map[string]string{"CODEX_HOME": filepath.Join(home, ".codex"), "CLAUDE_CONFIG_DIR": filepath.Join(home, ".claude")} {
 		if value := os.Getenv(name); value != "" && filepath.Clean(value) != standard {
 			result.Complete = false
@@ -338,8 +391,30 @@ func (e *Engine) SessionInventory(ctx context.Context) SessionInventory {
 }
 
 func attachSessions(c *Candidate, inventory SessionInventory) {
+	attachSessionsContext(context.Background(), c, inventory)
+}
+
+func attachSessionsContext(ctx context.Context, c *Candidate, inventory SessionInventory) {
+	var hashes map[string]bool
+	for _, s := range inventory.Sessions {
+		if s.WorkspaceHash != "" {
+			var err error
+			hashes, err = cursorScopeHashes(ctx, c.Path)
+			if err != nil {
+				block(c, "coding_session_coverage_incomplete")
+			}
+			break
+		}
+	}
+	identities := map[string]int{}
+	for _, s := range inventory.Sessions {
+		identities[s.Provider+"/"+s.ID]++
+	}
 	for _, session := range inventory.Sessions {
-		if session.Matches(c.Path) {
+		if session.Matches(c.Path) || hashes[session.WorkspaceHash] {
+			if identities[session.Provider+"/"+session.ID] > 1 {
+				block(c, "coding_session_identity_ambiguous")
+			}
 			c.SessionCount++
 			if len(c.Sessions) < 8 {
 				c.Sessions = append(c.Sessions, session)

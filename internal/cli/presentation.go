@@ -217,6 +217,23 @@ func renderApproval(w io.Writer, c disk.Candidate, preserveOnly bool) {
 		wrapped(styled(w, toneWarning), "  ", "This saved report predates session-link checks. Rescan before approving; removal will be refused.")
 	}
 	renderSessionLinks(w, c, true)
+	if !preserveOnly && len(c.SessionHandoffs) > 0 {
+		wrapped(styled(w, toneReady), "  ", "Sessions: make verified private history backups, quarantine the checkout, then verify Claude's local handoff before deleting. No model calls; no source changes in the surviving project.")
+		var backupBytes uint64
+		for _, h := range c.SessionHandoffs {
+			for _, f := range h.Files {
+				backupBytes += uint64(f.Bytes)
+			}
+		}
+		wrapped(w, "    ", "Required local history backup: "+size(backupBytes)+". This is not an off-device archive; actual net disk savings can be lower.")
+		for _, h := range c.SessionHandoffs {
+			verb := "Reopen in: "
+			if h.Status == "retain_parent" {
+				verb = "Keep parent session in: "
+			}
+			wrapped(w, "    ", h.Session.ID+" → "+verb+h.Destination)
+		}
+	}
 	wrapped(w, "  ", "1. Preserve source on the existing origin at "+c.RemoteHost+" and verify recovery.")
 	if !preserveOnly {
 		wrapped(styled(w, toneDanger), "  ", "2. Permanently remove this entire local checkout, not just caches.")

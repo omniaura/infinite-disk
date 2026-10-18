@@ -28,26 +28,27 @@ type Evidence struct {
 }
 
 type Candidate struct {
-	ID              string     `json:"id"`
-	Path            string     `json:"path"`
-	Name            string     `json:"name"`
-	Kind            string     `json:"kind"`
-	Head            string     `json:"head,omitempty"`
-	Branch          string     `json:"branch,omitempty"`
-	CommonDir       string     `json:"common_dir,omitempty"`
-	RemoteHost      string     `json:"remote_host,omitempty"`
-	RemoteDigest    string     `json:"remote_digest,omitempty"`
-	SizeBytes       uint64     `json:"size_bytes"`
-	SizeComplete    bool       `json:"size_complete"`
-	LastModified    time.Time  `json:"last_modified"`
-	DirtyFiles      int        `json:"dirty_files"`
-	Fingerprint     string     `json:"fingerprint,omitempty"`
-	Eligible        bool       `json:"eligible"`
-	Blockers        []string   `json:"blockers"`
-	Evidence        []Evidence `json:"evidence"`
-	Sessions        []Session  `json:"sessions,omitempty"`
-	SessionCount    int        `json:"session_count,omitempty"`
-	SessionsChecked bool       `json:"sessions_checked,omitempty"`
+	ID              string          `json:"id"`
+	Path            string          `json:"path"`
+	Name            string          `json:"name"`
+	Kind            string          `json:"kind"`
+	Head            string          `json:"head,omitempty"`
+	Branch          string          `json:"branch,omitempty"`
+	CommonDir       string          `json:"common_dir,omitempty"`
+	RemoteHost      string          `json:"remote_host,omitempty"`
+	RemoteDigest    string          `json:"remote_digest,omitempty"`
+	SizeBytes       uint64          `json:"size_bytes"`
+	SizeComplete    bool            `json:"size_complete"`
+	LastModified    time.Time       `json:"last_modified"`
+	DirtyFiles      int             `json:"dirty_files"`
+	Fingerprint     string          `json:"fingerprint,omitempty"`
+	Eligible        bool            `json:"eligible"`
+	Blockers        []string        `json:"blockers"`
+	Evidence        []Evidence      `json:"evidence"`
+	Sessions        []Session       `json:"sessions,omitempty"`
+	SessionCount    int             `json:"session_count,omitempty"`
+	SessionsChecked bool            `json:"sessions_checked,omitempty"`
+	SessionHandoffs []ClaudeHandoff `json:"session_handoffs,omitempty"`
 }
 
 type Space struct {
@@ -82,19 +83,20 @@ type Recommendation struct {
 }
 
 type Receipt struct {
-	Version        int        `json:"version"`
-	PlanID         string     `json:"plan_id"`
-	CandidateID    string     `json:"candidate_id"`
-	Path           string     `json:"path"`
-	ApprovedAt     time.Time  `json:"approved_at"`
-	Result         string     `json:"result"`
-	RecoveryRef    string     `json:"recovery_ref,omitempty"`
-	RecoveryCommit string     `json:"recovery_commit,omitempty"`
-	RemoteURL      string     `json:"remote_url,omitempty"`
-	QuarantinePath string     `json:"quarantine_path,omitempty"`
-	BundlePath     string     `json:"bundle_path,omitempty"`
-	BundleSHA256   string     `json:"bundle_sha256,omitempty"`
-	BeforeSpace    Space      `json:"before_space"`
-	AfterSpace     Space      `json:"after_space"`
-	Steps          []Evidence `json:"steps"`
+	Version         int             `json:"version"`
+	PlanID          string          `json:"plan_id"`
+	CandidateID     string          `json:"candidate_id"`
+	Path            string          `json:"path"`
+	ApprovedAt      time.Time       `json:"approved_at"`
+	Result          string          `json:"result"`
+	RecoveryRef     string          `json:"recovery_ref,omitempty"`
+	RecoveryCommit  string          `json:"recovery_commit,omitempty"`
+	RemoteURL       string          `json:"remote_url,omitempty"`
+	QuarantinePath  string          `json:"quarantine_path,omitempty"`
+	BundlePath      string          `json:"bundle_path,omitempty"`
+	BundleSHA256    string          `json:"bundle_sha256,omitempty"`
+	BeforeSpace     Space           `json:"before_space"`
+	AfterSpace      Space           `json:"after_space"`
+	Steps           []Evidence      `json:"steps"`
+	SessionHandoffs []ClaudeHandoff `json:"session_handoffs,omitempty"`
 }
