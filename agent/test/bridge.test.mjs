@@ -30,6 +30,25 @@ test("inventory projects away all private metadata",()=>{
  const data=validateInventory({version:1,candidates:[{...candidate,path:"/private/project",name:"secret project",source:"private source",remote:"private remote"}]});
  assert.deepEqual(data,[candidate]);assert.ok(!JSON.stringify(data).includes("private"));
 });
+test("the fourth Pi request disables tools for a final answer instead of spending a fifth request",async()=>{
+ const original=globalThis.fetch,calls=[];
+ const c={...candidate,eligible:false,analysis:{source_checked:false,ignored_complete:true,ignored_count:0,ignored_example_categories:{},available_suggestions:["resolve_blockers","native_session_handoff"]}};
+ globalThis.fetch=async(url,init)=>{
+  const body=JSON.parse(init.body);calls.push(body);
+  const actions=[['inventory_summary',{}],['inspect_project',{id:c.id}],['suggest_action',{id:c.id,action:'resolve_blockers'}]];
+  const final={recommendations:[{candidate_id:c.id,priority:1,decision:'analyze',reason:'Resolve checked prerequisites first',proposed_steps:['Ask approval'],suggested_actions:['resolve_blockers']}]};
+  // A model would spend the fourth round on another optional suggestion if
+  // tools were still available, leaving no request budget for its answer.
+  const action=actions[calls.length-1]??['suggest_action',{id:c.id,action:'native_session_handoff'}];
+  const delta=calls.length<4 || body.tool_choice!=='none'?{role:'assistant',tool_calls:[{index:0,id:`call_${calls.length}`,type:'function',function:{name:action[0],arguments:JSON.stringify(action[1])}}]}:{role:'assistant',content:JSON.stringify(final)};
+  const chunk={id:'chatcmpl-budget',object:'chat.completion.chunk',created:1,model:'gm/gpt-6-luna',choices:[{index:0,delta,finish_reason:delta.tool_calls?'tool_calls':'stop'}]};
+  return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`,{headers:{'content-type':'text/event-stream'}});
+ };
+ try {
+  const result=await triage({version:1,provider:'ditto',base_url:'https://router.heyditto.ai/v1',model:'gm/gpt-6-luna',candidates:[c]},{apiKey:'ditto_inf_fixture_not_real'});
+  assert.equal(calls.length,4);assert.equal(result.requests,4);assert.deepEqual(calls[2].tool_choice,{type:'function',function:{name:'suggest_action'}});assert.equal(calls[3].tool_choice,'none');assert.ok(calls.slice(0,3).every(x=>x.tool_choice!=='none'));assert.ok(calls[3].messages.some(x=>typeof x.content==='string'&&x.content.includes('This is the final request')));assert.equal(result.recommendations[0].decision,'analyze');assert.deepEqual(result.recommendations[0].suggested_actions,['resolve_blockers']);
+ } finally {globalThis.fetch=original;}
+});
 test("final proposed actions need actual suggestion-tool evidence",()=>{
  const c={...candidate,analysis:{available_suggestions:["preserve_source"]}};
  const r={candidate_id:c.id,suggested_actions:["preserve_source"]};
