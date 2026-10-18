@@ -157,3 +157,32 @@ func TestMeasuredFootprintDoesNotDoubleCountOrClaimUnknownSizes(t *testing.T) {
 		t.Fatal("unknown parent hid measured child", n)
 	}
 }
+
+func TestPartialCloneBlockedBeforeRecoveryPush(t *testing.T) {
+	for _, kind := range []string{"config", "pack marker"} {
+		t.Run(kind, func(t *testing.T) {
+			f := newFixture(t)
+			if kind == "config" {
+				runGit(t, f.repo, "config", "remote.origin.promisor", "true")
+				runGit(t, f.repo, "config", "remote.origin.partialclonefilter", "blob:none")
+			} else {
+				write(t, filepath.Join(f.repo, ".git/objects/pack/fixture.promisor"), "")
+			}
+			p, err := f.e.RunReport(context.Background())
+			if err != nil || len(p.Candidates) != 1 {
+				t.Fatal(err)
+			}
+			c := p.Candidates[0]
+			if c.Eligible || !slices.Contains(c.Blockers, "partial_clone_requires_materialized_recovery") || CanPreserveSource(c) {
+				t.Fatal("partial clone advertised as recoverable", c.Blockers)
+			}
+			if _, err := f.e.Apply(context.Background(), p, c.ID, p.ID, true); err == nil {
+				t.Fatal("partial clone removal allowed")
+			}
+			exists(t, f.repo)
+			if runGit(t, f.remote, "for-each-ref", "--format=%(refname)") != "refs/heads/main" {
+				t.Fatal("partial-clone preflight pushed anything")
+			}
+		})
+	}
+}

@@ -11,6 +11,8 @@
 - Add phase/count progress, per-project time limits, compact AI batches, exact
   project triage, sanitized inference failure stages, and usable report output
   even when AI fails. Deduplicate nested measured footprints in summaries.
+- Reject partial/promisor Git clones before offering preservation/removal,
+  rather than discovering missing historical objects during bundle creation.
 
 ## 0.1.0
 
