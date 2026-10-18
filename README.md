@@ -31,6 +31,9 @@ continue to use `OPENROUTER_API_KEY`. Each explicit triage is limited to four mo
 requests, 4096 output tokens/request and 60 seconds; these are request bounds,
 not a dollar-spend guarantee. Pi's local custom-provider cost counters are not
 billing evidence; use the Router's receipts/usage for actual costs.
+The fourth request disables tool use so Pi can return its final advice. When
+offered suggestions have not yet been recorded, the third request is reserved
+for `suggest_action`. Advice still fails closed if required evidence is missing.
 
 **A developer-workspace steward that asks before it acts.** Go + Cobra for deterministic safety, Pi for optional read-only triage. Standalone first; designed for desktop integrations through versioned JSON.
 
