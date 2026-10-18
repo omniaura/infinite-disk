@@ -41,6 +41,8 @@ infinite-disk review --color never          # plain text
 
 ## Build/dependency cleanup with Kondo
 
+Coding-session safety is separate from artifact cleanup; see [session links and orphan recovery](#session-links-and-orphan-recovery).
+
 Install [Kondo 0.9](https://github.com/tbillington/kondo/releases/tag/v0.9), with `--dry-run` support, on your PATH. It supplies the ecosystem/artifact catalog; Infinite Disk does not duplicate that catalog.
 
 ```sh
@@ -84,6 +86,42 @@ infinite-disk restore --plan PLAN_ID --project PROJECT_ID --to /absolute/new/des
 ```
 
 For standalone clones, restore verifies the bundle checksum and checks out the recovery commit, preserving unpublished refs. The destination must not exist. The restored `origin` points at the offline bundle: reconnect to a network remote explicitly. For linked worktrees, use the receipt's recovery commit/ref with the retained shared repository or fetch the verified recovery branch. Recovery bundles and receipts are **never automatically purged**.
+
+## Session links and orphan recovery
+
+Git recovery preserves code, **not the coding conversation or its workspace binding**. Checkout scans now include local session IDs and storage paths in `review --details` (up to eight evidence records per checkout, with the full count and a command to inspect all current index results). Associations include enclosing isolated worktree workspaces conservatively, not broad surviving parents like `~/code`. Linked sessions block checkout removal until native handoff is complete; incomplete/opaque session coverage also blocks removal. Old plans without session checks cannot be applied: rescan. This intentionally can reduce ready checkout savings to zero; the separate Kondo artifact flow keeps its existing checks and never deletes the checkout.
+
+```sh
+infinite-disk sessions list --project /absolute/checkout --details
+infinite-disk sessions list --orphans
+# Preview a native reopening route without writing or launching anything:
+infinite-disk sessions reattach --provider claude --session SESSION_ID --to /absolute/project --json
+# Review and approve a private preferred reopening destination:
+infinite-disk sessions reattach --provider claude --session SESSION_ID --to /absolute/project
+# Optionally start the native agent after per-session approval:
+infinite-disk sessions resume --provider claude --session SESSION_ID --launch
+```
+
+`--to` must be an existing, non-symlinked Git checkout root. The original recorded checkout must be missing, not merely inaccessible or unknown. A duplicate session ID blocks routing. Each approval rechecks the original external transcript and destination Git identity; a changed route requires review again. Enter, no, q, EOF and Ctrl+C do not approve. JSON only previews, never saves/launches. Routes are private local files under `session-routes/`; the monitor never creates or applies them.
+
+This **does not restore source, switch a branch, merge changes, copy transcripts, or rewrite app databases**. Choose the correct project and independently restore the preserved source if needed; a legacy orphan's original repository identity might no longer be verifiable. A saved route is not evidence of a successful native rebind. `--launch` explicitly starts the provider with its normal permissions/configuration and no permission-bypass flags; native hooks and provider charges can apply. No agent is launched during scans or cleanup.
+
+Initial provider coverage is deliberately limited:
+
+| Provider | Session metadata | Reopening / cleanup behavior |
+| --- | --- | --- |
+| Claude Code | Top-level transcript headers and native encoded project namespaces, without including conversation contents | Orphan CLI route; launching requires Claude Code 2.1.302+ in the 2.1 series. Existing-worktree handoff remains native. |
+| Codex | Read-only `state_5.sqlite` identity/path fields | Orphan routes for CLI-source sessions only, after verifying `resume --cd` support. Desktop/app-owned sessions require native handoff/restore. |
+| Grok | Native URL-encoded cwd/session namespace | Linked sessions detected; native reattachment adapter pending. |
+| Cursor | Known flat project transcript namespaces | Linked sessions detected. Nested transcripts and opaque CLI stores report incomplete coverage. Native reattachment pending. |
+| T3 Code | Read-only project/thread projections | Linked sessions detected; native handoff adapter pending. |
+| Emdash, Pi, OpenCode, Grok Bot | Presence of known session stores | Coverage incomplete; no deletion or fabricated empty-session result. |
+
+The SQLite metadata readers require `sqlite3`; missing tools, unreadable stores, unknown index versions, symlinks, time/entry limits and unsupported custom data roots fail closed. Lossy project namespace encodings are conservative positive matches, not used to invent a missing absolute path. Metadata headers can be historical; unknown/currently ambiguous cwd is not labeled orphaned. This is not exhaustive support for every coding app or custom storage layout. Session IDs/paths are not sent to Pi.
+
+Provider-native automatic pre-removal handoff, verified Desktop rebinding, full session export/restore and additional adapters remain tracked in [#6](https://github.com/omniaura/infinite-disk/issues/6) and [#7](https://github.com/omniaura/infinite-disk/issues/7). This first increment protects sessions and helps reopen supported existing orphans; it does **not** implement automatic reattachment during checkout cleanup.
+
+Sources: [Claude session resumption](https://code.claude.com/docs/en/sessions), [Claude worktree resumption](https://code.claude.com/docs/en/worktrees), and [official OpenAI documentation on native Codex handoff and snapshot/restore](https://learn.chatgpt.com/docs/environments/git-worktrees). Detection of private metadata layouts is conservative and version-specific, not a supported app-mutation API.
 
 ## Optional Pi agent
 

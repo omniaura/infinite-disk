@@ -25,6 +25,7 @@ type Engine struct {
 	Config           Config
 	Activity         func(context.Context) Activity
 	Now              func() time.Time
+	Sessions         func(context.Context) SessionInventory
 	allowLocalRemote bool   // Fixture tests only; never configurable by CLI or Pi.
 	scanAfter        string // Private discovery cursor; never changes approval scope.
 }
@@ -104,6 +105,12 @@ func block(c *Candidate, reason string) {
 }
 
 func (e *Engine) Inspect(ctx context.Context, path string, activity Activity) Candidate {
+	c := e.inspectSource(ctx, path, activity)
+	attachSessions(&c, e.SessionInventory(ctx))
+	return c
+}
+
+func (e *Engine) inspectSource(ctx context.Context, path string, activity Activity) Candidate {
 	c := Candidate{ID: pathID(path), Path: path, Name: filepath.Base(path), Kind: "clone", Eligible: true, Blockers: []string{}, Evidence: []Evidence{}}
 	if err := e.safeTarget(path); err != nil {
 		block(&c, err.Error())
@@ -322,6 +329,8 @@ func (e *Engine) Scan(ctx context.Context) (Plan, error) {
 		return p, errors.New("cannot read free disk space")
 	}
 	activity := e.Activity(ctx)
+	sessions := e.SessionInventory(ctx)
+	p.SessionWarnings = sessions.Warnings
 	home, _ := os.UserHomeDir()
 	p.Locations, _ = Locations(e.Config, home, false)
 	seen := map[string]bool{}
@@ -385,7 +394,9 @@ func (e *Engine) Scan(ctx context.Context) (Plan, error) {
 			break
 		}
 		path := discovered[(start+i)%len(discovered)]
-		p.Candidates = append(p.Candidates, e.Inspect(ctx, path, activity))
+		candidate := e.inspectSource(ctx, path, activity)
+		attachSessions(&candidate, sessions)
+		p.Candidates = append(p.Candidates, candidate)
 		e.scanAfter = path
 	}
 	slices.SortStableFunc(p.Candidates, func(a, b Candidate) int {

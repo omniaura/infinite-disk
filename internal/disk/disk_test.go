@@ -70,6 +70,7 @@ func newFixture(t *testing.T) fixture {
 	c.MinFreeGiB = 0
 	c.MinFreePercent = 0
 	f.e = NewEngine(c)
+	f.e.Sessions = func(context.Context) SessionInventory { return SessionInventory{Complete: true} }
 	f.e.allowLocalRemote = true
 	f.e.Activity = func(context.Context) Activity { return Activity{Known: true} }
 	return f

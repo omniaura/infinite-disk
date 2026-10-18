@@ -66,6 +66,7 @@ func TestBoundedScanResumesAcrossProjectsAndRoots(t *testing.T) {
 		fresh := NewEngine(f.e.Config)
 		fresh.allowLocalRemote = true
 		fresh.Activity = f.e.Activity
+		fresh.Sessions = f.e.Sessions
 		p, err := fresh.RunReport(context.Background())
 		if err != nil {
 			t.Fatal(err)

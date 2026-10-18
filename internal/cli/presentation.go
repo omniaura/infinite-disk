@@ -57,6 +57,12 @@ func label(c disk.Candidate) string {
 }
 func blockerText(s string) string {
 	switch s {
+	case "coding_sessions_require_native_handoff":
+		return "Linked coding sessions need native handoff before removing this checkout."
+	case "coding_session_coverage_incomplete":
+		return "Could not fully check coding-session links; keep checkout until native handoff is verified."
+	case "coding_sessions_not_checked":
+		return "Saved report predates session checks; run scan before approving checkout removal."
 	case "private_or_unknown_ignored_state":
 		return "Ignored files need review (may be builds, secrets or local data)."
 	case "recent_source_activity":
@@ -98,6 +104,10 @@ func renderPlan(w io.Writer, p disk.Plan, details bool) {
 	var ready, blocked []disk.Candidate
 	var readyBytes, blockedBytes uint64
 	for _, c := range p.Candidates {
+		if c.Eligible && !c.SessionsChecked {
+			c.Eligible = false
+			c.Blockers = append(append([]string{}, c.Blockers...), "coding_sessions_not_checked")
+		}
 		if c.Eligible {
 			ready = append(ready, c)
 			readyBytes += c.SizeBytes
@@ -164,6 +174,7 @@ func renderPlan(w io.Writer, p disk.Plan, details bool) {
 			for _, b := range c.Blockers {
 				wrapped(styled(w, toneWarning), "    ", blockerText(b))
 			}
+			renderSessionLinks(w, c, details)
 			if details {
 				wrapped(w, "    ", "Path: "+c.Path)
 				fmt.Fprintf(w, "    Select: --project %s\n", plain(c.ID))
@@ -189,6 +200,9 @@ func renderPlan(w io.Writer, p disk.Plan, details bool) {
 	for _, warning := range p.Warnings {
 		wrapped(styled(w, toneWarning), "! ", warning)
 	}
+	for _, warning := range p.SessionWarnings {
+		wrapped(styled(w, toneWarning), "! ", warning)
+	}
 	fmt.Fprintln(w, "\nNothing committed, pushed or deleted.")
 	fmt.Fprintln(w, "Build/dependency cleanup: infinite-disk caches scan")
 	fmt.Fprintln(w, "Remove checkouts with verified recovery: infinite-disk apply --review")
@@ -199,9 +213,39 @@ func renderPlan(w io.Writer, p disk.Plan, details bool) {
 func renderApproval(w io.Writer, c disk.Candidate, preserveOnly bool) {
 	fmt.Fprintf(styled(w, toneHeading), "\n%s  (%s)\n", label(c), size(c.SizeBytes))
 	wrapped(w, "  ", "Location: "+c.Path)
+	if !c.SessionsChecked {
+		wrapped(styled(w, toneWarning), "  ", "This saved report predates session-link checks. Rescan before approving; removal will be refused.")
+	}
+	renderSessionLinks(w, c, true)
 	wrapped(w, "  ", "1. Preserve source on the existing origin at "+c.RemoteHost+" and verify recovery.")
 	if !preserveOnly {
 		wrapped(styled(w, toneDanger), "  ", "2. Permanently remove this entire local checkout, not just caches.")
 	}
 	wrapped(styled(w, toneWarning), "  ", "Recovery excludes ignored dependencies, local Git settings and unreachable-only objects. Estimated savings may differ from actual free space.")
+}
+
+func renderSessionLinks(w io.Writer, c disk.Candidate, details bool) {
+	if len(c.Sessions) == 0 {
+		return
+	}
+	count := max(c.SessionCount, len(c.Sessions))
+	wrapped(styled(w, toneWarning), "    ", fmt.Sprintf("%d linked coding sessions; their history is not part of Git recovery.", count))
+	for i, s := range c.Sessions {
+		if !details && i >= 3 {
+			wrapped(w, "      ", "More sessions in review --details or sessions list --project PATH.")
+			break
+		}
+		id := s.ID
+		if !details && len(id) > 8 {
+			id = id[:8] + "..."
+		}
+		wrapped(w, "      ", s.Provider+" session: "+id)
+		if details {
+			wrapped(w, "        ", "Recorded checkout: "+s.Checkout)
+			wrapped(w, "        ", "Recorded history location: "+s.Store)
+		}
+	}
+	if details && count > len(c.Sessions) {
+		wrapped(w, "      ", "Session evidence is capped in this saved batch. Use sessions list --project PATH --details for the complete current index results.")
+	}
 }

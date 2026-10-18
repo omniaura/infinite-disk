@@ -39,8 +39,8 @@ func TestCancelledInputCannotApprove(t *testing.T) {
 }
 func TestReadablePlanGroupsAndSanitizes(t *testing.T) {
 	p := disk.Plan{ID: strings.Repeat("a", 64), Candidates: []disk.Candidate{
-		{ID: "one", Name: "backend", Path: "/projects/small/backend", Eligible: true, SizeComplete: true, SizeBytes: 1 << 30},
-		{ID: "two", Name: "backend", Path: "/projects/big/backend", Eligible: true, SizeComplete: true, SizeBytes: 2 << 30},
+		{ID: "one", Name: "backend", Path: "/projects/small/backend", Eligible: true, SessionsChecked: true, SizeComplete: true, SizeBytes: 1 << 30},
+		{ID: "two", Name: "backend", Path: "/projects/big/backend", Eligible: true, SessionsChecked: true, SizeComplete: true, SizeBytes: 2 << 30},
 		{ID: "bad", Path: "/projects/evil\x1b[2J/backend", SizeComplete: true, SizeBytes: 3 << 30, Blockers: []string{"private_or_unknown_ignored_state"}},
 	}}
 	var out bytes.Buffer

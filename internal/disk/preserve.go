@@ -224,6 +224,9 @@ func (e *Engine) Apply(ctx context.Context, plan Plan, candidateID, approvedPlan
 	if candidate == nil || !candidate.Eligible {
 		return r, errors.New("project is not an eligible candidate in this plan")
 	}
+	if !candidate.SessionsChecked {
+		return r, errors.New("plan predates coding-session safety checks; rescan before applying")
+	}
 	release, err := acquireLock(e.Config)
 	if err != nil {
 		return r, err

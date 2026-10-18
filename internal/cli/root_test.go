@@ -24,7 +24,7 @@ func TestApprovalDefaultNoAndExactSelection(t *testing.T) {
 	if err = disk.SaveConfig(config, c); err != nil {
 		t.Fatal(err)
 	}
-	p, err := disk.SavePlan(c, disk.Plan{Version: 1, CreatedAt: time.Now(), ConfigDigest: disk.ConfigDigest(c), Candidates: []disk.Candidate{{ID: "aaaaaaaaaaaaaaaa", Path: filepath.Join(c.Roots[0], "fixture"), Name: "fixture", Eligible: true}}})
+	p, err := disk.SavePlan(c, disk.Plan{Version: 1, CreatedAt: time.Now(), ConfigDigest: disk.ConfigDigest(c), Candidates: []disk.Candidate{{ID: "aaaaaaaaaaaaaaaa", Path: filepath.Join(c.Roots[0], "fixture"), Name: "fixture", Eligible: true, SessionsChecked: true}}})
 	if err != nil {
 		t.Fatal(err)
 	}
