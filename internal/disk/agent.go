@@ -132,6 +132,14 @@ func (e *Engine) triage(ctx context.Context, p Plan, selected map[string]bool) (
 				stage = "provider request"
 			case 75:
 				stage = "agent time budget"
+			case 81:
+				stage = "inventory evidence"
+			case 82:
+				stage = "model JSON parsing"
+			case 83:
+				stage = "recommendation validation"
+			case 84:
+				stage = "suggestion evidence"
 			}
 		}
 		return p, errors.New("Pi triage failed at " + stage + "; original report retained. Retry a smaller set with triage --project ID")
@@ -141,6 +149,7 @@ func (e *Engine) triage(ctx context.Context, p Plan, selected map[string]bool) (
 		Recommendations []Recommendation `json:"recommendations"`
 		Steps           []Evidence       `json:"steps"`
 		Capabilities    []string         `json:"capabilities"`
+		Warnings        []string         `json:"warnings,omitempty"`
 	}
 	if err := json.Unmarshal(output.Bytes(), &result); err != nil || result.Version != 1 {
 		return p, errors.New("invalid Pi response")
@@ -217,8 +226,19 @@ func (e *Engine) triage(ctx context.Context, p Plan, selected map[string]bool) (
 	if !inspected {
 		return p, errors.New("Pi did not inspect the metadata inventory")
 	}
+	if len(result.Warnings) > 1 {
+		return p, errors.New("invalid Pi warning")
+	}
+	for _, warning := range result.Warnings {
+		if warning != "omitted_unrecorded_suggestions" {
+			return p, errors.New("invalid Pi warning")
+		}
+	}
 	p.Recommendations = result.Recommendations
 	p.AgentSteps = result.Steps
+	for range result.Warnings {
+		p.AgentSteps = append(p.AgentSteps, Evidence{"pi_response", "constrained", "Unrecorded model action suggestions were omitted; no tool evidence or approval was invented."})
+	}
 	p.AgentSteps = append(p.AgentSteps, Evidence{"pi_coverage", "checked", itoa(len(result.Recommendations)) + " projects advised from " + itoa(len(items)) + " largest metadata records; " + itoa(len(p.Candidates)) + " projects in saved report. Advice is not approval."})
 	p, err = SavePlan(e.Config, p)
 	if err != nil {

@@ -76,7 +76,7 @@ Discovery gets a 45-second traversal budget within the five-minute scan; an indi
 gets 15 seconds. Incomplete checks stay blocked, and partial coverage is explicit.
 
 Pi receives the largest **20** anonymized metadata records from each batch and
-returns at most eight concise recommendations. This is advisory coverage, not a
+is instructed to return at most three concise recommendations. This is advisory coverage, not a
 claim that AI analyzed every inspected project. To advise particular saved
 projects: `infinite-disk triage --plan PLAN --project ID1,ID2` (at most 20).
 Each `--agent` batch permits at most four paid requests, 4096 output tokens per
@@ -88,6 +88,9 @@ If inference fails, the deterministic report is still printed and saved, with a
 nonzero exit status and a sanitized error on stderr; later batches do not run.
 Directory footprints are not net reclaim promises, and nested checkouts are
 deduplicated within summary groups.
+Unrecorded model action suggestions are discarded with an audit warning, never
+turned into tool evidence or approval. Unsupported actions and project IDs are
+still rejected; retained suggestions must pass the same Go evidence checks.
 
 ### Include your coding apps
 

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
-import {TOOL_NAMES,SYSTEM_PROMPT,validateInventory,createInventoryTools,validateRecommendations,validateSuggestionEvidence,providerSettings,triage} from "../bridge.mjs";
+import {TOOL_NAMES,SYSTEM_PROMPT,validateInventory,createInventoryTools,validateRecommendations,validateSuggestionEvidence,constrainSuggestionEvidence,providerSettings,triage} from "../bridge.mjs";
 
 const candidate={id:"abcdef0123456789",eligible:true,age_days:30,size_bytes:5*2**30,size_complete:true,dirty_files:2,blockers:[]};
 test("Ditto provider accepts only explicit first-party routing",()=>{
@@ -55,6 +55,19 @@ test("final proposed actions need actual suggestion-tool evidence",()=>{
  assert.throws(()=>validateSuggestionEvidence([r],[c],[]));
  assert.throws(()=>validateSuggestionEvidence([r],[c],[{check:"suggest_action",detail:c.id+":keep"}]));
  validateSuggestionEvidence([r],[c],[{check:"suggest_action",detail:c.id+":preserve_source"}]);
+});
+test("discard unrecorded suggestions without inventing evidence or relaxing allowed-action validation",()=>{
+ const c={...candidate,analysis:{available_suggestions:["preserve_source","resolve_blockers"]}};
+ const raw={candidate_id:c.id,priority:1,decision:"review",reason:"Fixture",proposed_steps:[],suggested_actions:["preserve_source","resolve_blockers"]};
+ const steps=[{check:"suggest_action",outcome:"performed",detail:c.id+":preserve_source"}];
+ const validated=validateRecommendations({recommendations:[raw]},[c]);
+ const result=constrainSuggestionEvidence(validated,steps);
+ assert.deepEqual(result.recommendations[0].suggested_actions,["preserve_source"]);
+ assert.deepEqual(result.warnings,["omitted_unrecorded_suggestions"]);
+ assert.equal(steps.length,1);assert.equal(raw.suggested_actions.length,2);
+ validateSuggestionEvidence(result.recommendations,[c],steps);
+ assert.throws(()=>validateRecommendations({recommendations:[{...raw,suggested_actions:["delete_without_approval"]}]},[c]));
+ assert.throws(()=>validateSuggestionEvidence(result.recommendations,[c],[]));
 });
 test("invalid or excessive inventories fail closed",()=>{
  for(const input of [{version:2,candidates:[]},{version:1,candidates:Array(201).fill(candidate)},{version:1,candidates:[{...candidate,id:"../bad"}]},{version:1,candidates:[{...candidate,size_bytes:-1}]}])assert.throws(()=>validateInventory(input));

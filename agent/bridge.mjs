@@ -48,7 +48,7 @@ Private data needs a private backup, never a blanket git add/push. Unsupported n
 Recommend review of old, eligible, space-consuming projects, and keep or block in-use/recent/unsafe projects.
 No project is deleted by your decision. Never claim any preservation, deletion, approval, or external action occurred.
 Return only JSON: {"recommendations":[{"candidate_id":"opaque ID","priority":1,"decision":"review|keep|blocked|analyze","reason":"brief evidence-based reason","proposed_steps":["future step, not performed"],"suggested_actions":["offered action kind"]}]}.
-Give at most eight recommendations, biggest useful opportunities first. Keep each reason to one sentence and proposed_steps to at most three brief steps. Do not exhaust the output budget listing every project.
+Give at most three recommendations, biggest useful opportunities first. Keep each reason to one sentence and proposed_steps to at most two brief steps. Do not exhaust the output budget listing every project.
 Use only IDs returned by tools. Ineligible projects must remain blocked or analyze, never review/keep as cleanup approval. Do not invent amounts or repository facts.`;
 
 export function validateInventory(input) {
@@ -110,6 +110,18 @@ export function validateSuggestionEvidence(recommendations,candidates,steps) {
   }
 }
 
+// Unrecorded model suggestions are not evidence. Discard them rather than
+// inventing tool calls or losing every otherwise valid advisory in the batch.
+// Unknown actions/IDs/unsafe recommendations are still rejected before this.
+export function constrainSuggestionEvidence(recommendations,steps) {
+  let omitted=0;
+  const constrained=recommendations.map(r=>({...r,suggested_actions:(r.suggested_actions??[]).filter(kind=>{
+    const recorded=steps.some(s=>s.check==="suggest_action"&&s.outcome==="performed"&&s.detail===r.candidate_id+":"+kind);
+    if(!recorded)omitted++;return recorded;
+  })}));
+  return {recommendations:constrained,warnings:omitted?["omitted_unrecorded_suggestions"]:[]};
+}
+
 export async function triage(input, options = {}) {
   const candidates=validateInventory(input);
   const settingsProvider=providerSettings(input);
@@ -155,13 +167,17 @@ export async function triage(input, options = {}) {
     stage="provider_run";
     await session.prompt("Inspect the inventory with your read-only tools and return the recommendation JSON. Do not perform any filesystem or Git action.",{expandPromptTemplates:false});
     if(stage==="time_budget")throw new Error("Agent time budget exceeded");
-    stage="response_validation";
+    stage="inventory_evidence";
     if(!steps.some((s)=>s.check==="inventory_summary"))throw new Error("Agent did not inspect the inventory");
     const text=session.getLastAssistantText() ?? "";
+    stage="response_json";
     const decoded=JSON.parse(text.replace(/^```(?:json)?\s*/i,"").replace(/\s*```$/, ""));
-    const recommendations=validateRecommendations(decoded,candidates);
+    stage="recommendation_validation";
+    const constrained=constrainSuggestionEvidence(validateRecommendations(decoded,candidates),steps);
+    const {recommendations,warnings}=constrained;
+    stage="suggestion_evidence";
     validateSuggestionEvidence(recommendations,candidates,steps);
-    return {version:1,recommendations,steps,requests,capabilities:[...TOOL_NAMES]};
+    return {version:1,recommendations,steps,requests,capabilities:[...TOOL_NAMES],warnings};
   } catch {
     throw new Error(`Pi triage failed at ${stage}; no raw provider details retained`);
   } finally {
@@ -173,4 +189,8 @@ async function main(){
   let raw="";for await(const chunk of process.stdin){raw+=chunk;if(Buffer.byteLength(raw)>1_000_000)throw new Error("Inventory exceeded input budget");}
   const output=await triage(JSON.parse(raw));process.stdout.write(JSON.stringify(output)+"\n");
 }
-if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){main().catch((error)=>{process.stderr.write("Pi triage failed; no raw provider error or credentials were logged.\n");process.exitCode=error?.message?.startsWith("Pi triage failed at response_validation;")?65:error?.message?.startsWith("Pi triage failed at provider_run;")?69:error?.message?.startsWith("Pi triage failed at time_budget;")?75:70;});}
+if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){main().catch((error)=>{
+ process.stderr.write("Pi triage failed; no raw provider error or credentials were logged.\n");
+ const stage=/^Pi triage failed at ([a-z_]+);/.exec(error?.message??"")?.[1];
+ process.exitCode=({provider_run:69,time_budget:75,inventory_evidence:81,response_json:82,recommendation_validation:83,suggestion_evidence:84})[stage]??70;
+});}
