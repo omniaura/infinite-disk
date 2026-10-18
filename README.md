@@ -64,7 +64,7 @@ infinite-disk scan            # rescan; previous approvals are invalidated
 
 Known layouts cover Claude Code, Codex, Cursor, Grok/Grok Bot, T3 Code and Emdash. Embedded `.claude/worktrees`, `.worktrees`, `worktrees` and `workspaces` are discovered under `~/code` and `~/projects`, without following symlinks or traversing dependency/Git stores. Existing configurations are never silently widened: `locations --add` is explicit opt-in. Custom app storage outside these parents still needs an explicit config root. Missing worktrees are reported as not present, not confused with session histories or empty directories. Discovery coverage and the number inspected out of discovered projects are shown in new reports; each scan still uses a bounded rotating inspection batch. Discovery does not remove provider-native safety blockers.
 
-The default report separates **ready for approval** from **needs review** and shows the largest checkouts first. Blocked bytes are not counted as approved savings. It is a rotating project batch, **not a whole-disk inventory**; model downloads, global caches, Docker, media and app data are not included. Saved free-space measurements are labeled separately from current free space.
+The default report separates **ready for approval** from **needs review** and shows the largest checkouts first. Blocked bytes are not counted as approved savings. It is a rotating project batch, **not a whole-disk inventory**; use the separate [global cleanup report](#global-caches-and-download-installers-macos) for supported caches and installers. Model downloads, Docker, media and app data remain excluded. Saved free-space measurements are labeled separately from current free space.
 
 Use `review --details` for evidence, or `review --project PROJECT_ID --details` for one project. Internal IDs and full paths stay in detail views. Terminal reports and approval prompts use your terminal's palette: cyan headings, green ready savings, amber warnings, and red permanent-removal notices. Text labels remain meaningful without color. Colors are automatic only on a terminal (stdout and stderr detected independently); pipes, `NO_COLOR=1`, and `TERM=dumb` stay plain. Use `--color always` to explicitly force colors or `--color never` to disable them; these override the automatic environment checks. `--json` never contains ANSI colors, even with `--color always`.
 
@@ -92,6 +92,38 @@ This flow **keeps source, Git history and the checkout**. It never invokes Kondo
 These are normally regenerable artifacts, but custom irreplaceable data inside an artifact directory is still your responsibility. Inspect the displayed paths and stop the project's tools before approving. Deleted artifacts are **not backed up**: reinstall dependencies/rebuild afterward. Same-user concurrent filesystem mutation cannot be fully excluded. Partial removal and interruption can leave a partly cleaned artifact; source remains outside the approved paths. Cache reports are separate from checkout reports and use the same 50-report retention policy; operation logs and receipts remain private. The monitor still only runs checkout audits, not this potentially expensive Kondo pass.
 
 For an explicitly authorized automation, `caches apply --plan CACHE_DIGEST --project ARTIFACT_ID --approve-plan CACHE_DIGEST --non-interactive --json` approves one exact artifact without a prompt. There is no batch approve-all. Wrong/expired plans, blocked IDs, changed paths and missing approval fail; `--non-interactive` never waits for stdin.
+
+## Global caches and download installers (macOS)
+
+Global cache discovery needs its own safety policy, not broader project roots. No configuration change is required:
+
+```sh
+infinite-disk global scan             # report only; no provider commands or deletion
+infinite-disk global review --json    # private immutable report, separate from checkouts/Kondo
+infinite-disk global apply --plan GLOBAL_DIGEST --target TARGET_ID
+# Explicitly authorized automation can approve one exact target:
+infinite-disk global apply --plan GLOBAL_DIGEST --target TARGET_ID --approve-plan GLOBAL_DIGEST --non-interactive --json
+```
+
+The fixed macOS catalog covers these locations under the current user's canonical home and temporary directories:
+
+| Category | Scope |
+| --- | --- |
+| Go build cache | `~/Library/Caches/go-build` |
+| xgo instrumentation build caches | `xgo/go-instrument/go*/build-cache` under the user temp directory and `/private/tmp` |
+| uv, Bun, npm package caches | `~/.cache/uv`, `~/.bun/install/cache`, `~/.npm/_cacache` |
+| Linter and language-server caches | `~/Library/Caches/golangci-lint`, `~/Library/Caches/gopls` |
+| Download installers | Regular `.dmg`/`.pkg` files directly in `~/Downloads`, with recognized UDIF/XAR signatures and both modification/change times older than `idle_days` (seven days by default) |
+
+The catalog excludes worktrees, app databases/media, Bun global installations, pnpm stores, Go module downloads, arbitrary temp directories, nested Downloads folders and directory-style installer bundles. A recognized disk-image/package signature does not prove it is a disposable app installer: review its contents before approving that file. Custom cache environment overrides are not followed. There are no configurable deletion paths or shell commands. Linux does not yet support this separate macOS adapter; Kondo/project commands retain their existing platform support.
+
+`scan` and `review` only report; the default watcher still only audits checkouts. Reports do not grant approval. `apply` requires one target, explicit confirmation or its exact approved plan digest, and a report no older than 24 hours. JSON/non-interactive apply never prompts or assumes consent; there is no approve-all. The operation lock is shared with existing checkout/artifact operations. Private global reports retain the latest 50 in their own `global/` state namespace, while receipts remain available.
+
+Before removal, the engine repeats ownership, scope, full metadata/identity, activity and producer checks. Running Go/xgo/compiler/language-server, Bun, uv or npm/Node producers conservatively block their corresponding caches even without an open cache file. Unknown activity or mounted-image inventory fails closed. Open/mounted installers (including mounted hardlink aliases), symlinked targets, escaping/broken links, private-state markers, nested Git, special files, device boundaries and incomplete inspection block cleanup.
+
+Only unchanged files captured in the approved manifest are unlinked, using directory-relative descriptors without following links. Cache roots and all directories stay; newly generated or changed files are retained, and partial/cancelled cleanup gets a receipt. Internal links are unlinked without traversing them, and hardlinked package data outside the cache remains. Allocated sizes are estimates, not guaranteed reclaimed bytes; receipts record actual filesystem free space before and after.
+
+These files are **not backed up**. Rebuild/download caches later; inspect each displayed path and stop its producers before approving. Personal data placed inside a cache is not automatically recoverable. Same-user mutation between the final identity check and unlink cannot be completely excluded without OS isolation; this is not a sandbox or protection against a hostile process running as you. No native provider cleanup command is run, so a tool cannot widen an approval or remove newly generated files through a broad recursive cleaner.
 
 ## Analyze, suggest, then approve
 

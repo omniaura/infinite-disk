@@ -14,6 +14,8 @@ Only credential-free HTTPS/`git@host` origin URLs on configured hosts are allowe
 
 ## Release gates
 
+The separate macOS `global` flow has a fixed cache/installer catalog and an isolated plan namespace. Project roots and model output cannot widen it. It requires exact per-target approval, repeats activity/producer/mount/identity checks, and unlinks only unchanged approved files through no-follow, directory-relative descriptors. It never recursively removes a cache root or runs provider cleanup commands. Directories and new files remain; partial operations record receipts. Same-user check-to-unlink races remain a limitation, and cache/installer deletion has no recovery backup. The watcher does not apply these plans or run global scans automatically.
+
 - Fixture-only destructive integration tests; exact-HEAD CI on macOS and Linux.
 - Go race tests/vet/govulncheck; locked Node install without lifecycle scripts and npm audit.
 - Read-only real Pi/OpenRouter smoke before initial release; no CI provider key.

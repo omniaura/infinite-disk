@@ -29,6 +29,8 @@ IDs are SHA-256 based (16 hex path identity, 64 hex full serialized-plan digest)
 
 ## Recovery semantics
 
+Global caches/installers use `global scan/review/apply` and `Engine.GlobalConfig()` (`state/global/`). The fixed macOS catalog does not reuse project discovery or Kondo, and adds no arbitrary cleanup configuration. Scope is validated again on apply, independently of plan integrity. Identity manifests include inode/device/owner/mode/size/modification/change time and link metadata; bounded scans reject private/uninspectable trees. File removal opens approved directory identities with no-follow flags and never removes directories. Producer, open-file and mounted-image probes fail closed and are repeated during cleanup. Receipts report partial operations and actual free space; the native watcher continues to audit checkouts only. See the README for exact catalog and consent behavior.
+
 Temporary Git index + raw blob hashing avoid user's staging area, hooks and clean filters. Recovery commits descend from current HEAD and are pushed to a dedicated branch without force. Exact remote ref readback is required. Full-clone bundles include all refs, HEAD and recovery; a fresh bare repository verifies no missing prerequisites. Linked worktrees keep their common Git storage and use native Git lifecycle. Sensitive unknown ignored state blocks removal. Receipt persistence and a synced audit event precede removal.
 
 Unreachable/reflog-only objects and local Git settings are outside the v1 bundle guarantee. A local bundle is recovery, not an off-device backup; losing the disk can lose unpublished refs not on the recovery branch. The roadmap includes encrypted remote archives and provider-native retention.
