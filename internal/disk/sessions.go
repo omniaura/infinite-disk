@@ -375,15 +375,14 @@ func (e *Engine) SessionInventory(ctx context.Context) SessionInventory {
 		if s.WorkspaceHash == "" {
 			continue
 		}
-		versionCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-		cmd := exec.CommandContext(versionCtx, "cursor-agent", "--version")
-		out := &cappedBuffer{limit: 4096}
-		cmd.Stdout = out
-		err := cmd.Run()
-		cancel()
-		if err != nil || out.overflow || strings.TrimSpace(out.String()) != "2026.05.28-a70ca7c" {
+		version, err := cursorNamespaceVersion(ctx)
+		if err != nil || version != "2026.05.28-a70ca7c" {
 			result.Complete = false
-			result.Warnings = append(result.Warnings, "Cursor CLI namespace version is unverified; checkout removal requires native handoff")
+			if errors.Is(err, context.DeadlineExceeded) {
+				result.Warnings = append(result.Warnings, "Cursor CLI version check timed out; coding-session coverage remains incomplete")
+			} else {
+				result.Warnings = append(result.Warnings, "Cursor CLI namespace version is unverified; checkout removal requires native handoff")
+			}
 		}
 		break
 	}
@@ -394,6 +393,26 @@ func (e *Engine) SessionInventory(ctx context.Context) SessionInventory {
 		}
 	}
 	return result
+}
+
+// A cold Cursor launcher can take longer than three seconds under disk/CPU
+// pressure even for --version. Allow a bounded startup budget, without relaxing
+// the exact tested-version gate or inheriting an unlimited caller deadline.
+func cursorNamespaceVersion(ctx context.Context) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "cursor-agent", "--version")
+	cmd.WaitDelay = time.Second
+	out := &cappedBuffer{limit: 4096}
+	cmd.Stdout = out
+	err := cmd.Run()
+	if ctx.Err() != nil {
+		return "", ctx.Err()
+	}
+	if err != nil || out.overflow {
+		return "", errors.New("Cursor CLI version could not be verified")
+	}
+	return strings.TrimSpace(out.String()), nil
 }
 
 func attachSessions(c *Candidate, inventory SessionInventory) {
