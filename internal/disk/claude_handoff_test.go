@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -315,7 +316,7 @@ func TestRecoverInterruptedClaudeQuarantineNeverOverwrites(t *testing.T) {
 }
 
 func TestClaudeStackChildCloneRetainsParentSession(t *testing.T) {
-	for _, layout := range []string{".claude/worktrees/fixture", ".worktrees/claude-fixture", ".claude/worktrees/no-primary"} {
+	for _, layout := range []string{".claude/worktrees/fixture", ".worktrees/claude-fixture", ".claude/worktrees/no-primary", ".claude/worktrees/active-parent"} {
 		t.Run(layout, func(t *testing.T) {
 			f := newFixture(t)
 			primary := f.repo
@@ -350,7 +351,29 @@ func TestClaudeStackChildCloneRetainsParentSession(t *testing.T) {
 				t.Fatal("surviving parent session must not be moved")
 				return nil
 			}
+			if layout == ".claude/worktrees/active-parent" {
+				write(t, filepath.Join(checkout, ".git/info/exclude"), "local-private/\n")
+				write(t, filepath.Join(checkout, "local-private/state"), "fixture private data\n")
+				idle := plan(t, f)
+				archive, err := f.e.PlanPrivate(context.Background(), idle, idle.Candidates[0].ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				f.e.Activity = func(context.Context) Activity { return Activity{Known: true, Paths: []string{wrapper}} }
+				if _, err = f.e.ArchivePrivate(context.Background(), archive.ID, archive.ID); err == nil {
+					t.Fatal("parent becoming active after planning must prevent relocation")
+				}
+			}
 			p := plan(t, f)
+			if layout == ".claude/worktrees/active-parent" {
+				c := p.Candidates[0]
+				if c.Eligible || !slices.Contains(c.Blockers, "project_in_use") || CanArchivePrivate(c) {
+					t.Fatal("active parent session did not prevent private archival", c.Blockers)
+				}
+				exists(t, filepath.Join(checkout, "local-private/state"))
+				exists(t, store)
+				return
+			}
 			eligible(t, p.Candidates[0])
 			r, err := f.e.Apply(context.Background(), p, p.Candidates[0].ID, p.ID, true)
 			if err != nil || r.Result != "removed" || r.SessionHandoffs[0].Status != "retained_parent" {
