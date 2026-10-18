@@ -76,7 +76,9 @@ func readInferenceKey(path string) (string, error) {
 	if !ok || int(st.Uid) != os.Getuid() || st.Nlink != 1 {
 		return "", bad
 	}
-	f, err := os.Open(path)
+	// No-follow/nonblocking open closes the lstat→open symlink/FIFO race.
+	// The descriptor identity below must still match the checked regular file.
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return "", bad
 	}
