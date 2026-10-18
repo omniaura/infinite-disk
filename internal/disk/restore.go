@@ -21,7 +21,7 @@ func LoadReceipt(c Config, plan, project string) (Receipt, error) {
 		return r, err
 	}
 	s, err := os.Lstat(path)
-	if err != nil || !s.Mode().IsRegular() || s.Mode().Perm()&0077 != 0 || s.Size() > 1<<20 {
+	if err != nil || !s.Mode().IsRegular() || s.Mode().Perm()&0077 != 0 || s.Size() > 16<<20 {
 		return r, errors.New("receipt must be a private regular file")
 	}
 	b, err := os.ReadFile(path)

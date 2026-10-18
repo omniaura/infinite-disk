@@ -19,6 +19,7 @@ There is deliberately no edge from the scheduler/model to apply. Pi sees opaque 
 - `apply --plan DIGEST --project ID --approve-plan DIGEST --json` is the privileged, explicit one-project operation. A host must obtain consent first; this flag is not a substitute for its consent UI.
 - Apply returns a `Receipt` with approved timestamp, actual steps/outcomes, verified recovery commit/ref, private bundle checksum/path when applicable, quarantine path if interrupted, and before/after free bytes.
 - `restore` reads a private receipt, verifies bundle SHA-256, and restores to a new destination without contacting the remote.
+- `recover --plan DIGEST --project ID` restores a journaled interrupted quarantine without overwriting anything or rewinding conversation history.
 - `status --json` gives watcher timestamps, latest report ID, pressure/free space, and a non-sensitive warning. Hosts can detect staleness from `checked_at`.
 - `doctor --json` returns prerequisites and key presence only, never the key.
 
@@ -29,6 +30,8 @@ IDs are SHA-256 based (16 hex path identity, 64 hex full serialized-plan digest)
 Temporary Git index + raw blob hashing avoid user's staging area, hooks and clean filters. Recovery commits descend from current HEAD and are pushed to a dedicated branch without force. Exact remote ref readback is required. Full-clone bundles include all refs, HEAD and recovery; a fresh bare repository verifies no missing prerequisites. Linked worktrees keep their common Git storage and use native Git lifecycle. Sensitive unknown ignored state blocks removal. Receipt persistence and a synced audit event precede removal.
 
 Unreachable/reflog-only objects and local Git settings are outside the v1 bundle guarantee. A local bundle is recovery, not an off-device backup; losing the disk can lose unpublished refs not on the recovery branch. The roadmap includes encrypted remote archives and provider-native retention.
+
+Claude session continuity has a separate [transaction contract](claude-handoff.md): immutable session-file/destination identities, synced private backups, journaled native Git move/clone rename, zero-turn native binding clear and independent ID resume, fresh source/private/activity/session checks, then removal. Plans and receipts expose optional `session_handoffs`; older plans cannot silently gain an adapter. Unknown provider schemas stay blocked, while verified read-only provider scopes avoid unrelated global vetoes. No native transcript contents or private paths are included in Pi's inventory.
 
 ## Budgets and operational behavior
 

@@ -26,8 +26,9 @@ type Engine struct {
 	Activity         func(context.Context) Activity
 	Now              func() time.Time
 	Sessions         func(context.Context) SessionInventory
-	allowLocalRemote bool   // Fixture tests only; never configurable by CLI or Pi.
-	scanAfter        string // Private discovery cursor; never changes approval scope.
+	claudeRunner     func(context.Context, ClaudeHandoff) error // Fixture-only substitution for native CLI.
+	allowLocalRemote bool                                       // Fixture tests only; never configurable by CLI or Pi.
+	scanAfter        string                                     // Private discovery cursor; never changes approval scope.
 }
 
 func NewEngine(c Config) *Engine { return &Engine{Config: c, Activity: ReadActivity, Now: time.Now} }
@@ -106,7 +107,8 @@ func block(c *Candidate, reason string) {
 
 func (e *Engine) Inspect(ctx context.Context, path string, activity Activity) Candidate {
 	c := e.inspectSource(ctx, path, activity)
-	attachSessions(&c, e.SessionInventory(ctx))
+	attachSessionsContext(ctx, &c, e.SessionInventory(ctx))
+	e.prepareClaudeHandoffs(ctx, &c, activity)
 	return c
 }
 
@@ -395,7 +397,8 @@ func (e *Engine) Scan(ctx context.Context) (Plan, error) {
 		}
 		path := discovered[(start+i)%len(discovered)]
 		candidate := e.inspectSource(ctx, path, activity)
-		attachSessions(&candidate, sessions)
+		attachSessionsContext(ctx, &candidate, sessions)
+		e.prepareClaudeHandoffs(ctx, &candidate, activity)
 		p.Candidates = append(p.Candidates, candidate)
 		e.scanAfter = path
 	}

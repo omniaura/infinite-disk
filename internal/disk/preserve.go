@@ -202,6 +202,9 @@ func saveReceipt(c Config, r Receipt) error {
 	if e != nil {
 		return e
 	}
+	if len(b) > 16<<20 {
+		return errors.New("recovery receipt exceeds private state limit")
+	}
 	return atomicPrivate(filepath.Join(c.StateDir, "receipts", r.PlanID+"-"+r.CandidateID+".json"), b)
 }
 
@@ -233,7 +236,7 @@ func (e *Engine) Apply(ctx context.Context, plan Plan, candidateID, approvedPlan
 	}
 	defer release()
 	fresh := e.Inspect(ctx, candidate.Path, e.Activity(ctx))
-	if !fresh.Eligible || fresh.Fingerprint != candidate.Fingerprint || fresh.Head != candidate.Head || fresh.RemoteDigest != candidate.RemoteDigest || fresh.CommonDir != candidate.CommonDir || fresh.Kind != candidate.Kind {
+	if !fresh.Eligible || fresh.Fingerprint != candidate.Fingerprint || fresh.Head != candidate.Head || fresh.RemoteDigest != candidate.RemoteDigest || fresh.CommonDir != candidate.CommonDir || fresh.Kind != candidate.Kind || !sameHandoffs(fresh.SessionHandoffs, candidate.SessionHandoffs) {
 		return r, errors.New("project changed, became active, or no longer passes safety checks")
 	}
 	r = Receipt{Version: ProtocolVersion, PlanID: plan.ID, CandidateID: candidate.ID, Path: candidate.Path, ApprovedAt: e.Now().UTC(), Result: "approved", Steps: []Evidence{{"approval", "received", "Explicit per-project approval of an immutable plan"}}}
@@ -264,6 +267,9 @@ func (e *Engine) Apply(ctx context.Context, plan Plan, candidateID, approvedPlan
 	if !remove {
 		return r, nil
 	}
+	if err = e.backupClaudeSessions(fresh, &r); err != nil {
+		return r, err
+	}
 	if err = e.safeTarget(candidate.Path); err != nil {
 		return r, err
 	}
@@ -274,13 +280,17 @@ func (e *Engine) Apply(ctx context.Context, plan Plan, candidateID, approvedPlan
 	// Re-inspect ignored/private state too: it is deliberately not part of the
 	// source fingerprint and may have appeared while the recovery push ran.
 	final := e.Inspect(ctx, candidate.Path, active)
-	if !final.Eligible || final.Fingerprint != candidate.Fingerprint {
+	if !final.Eligible || final.Fingerprint != candidate.Fingerprint || !sameHandoffs(final.SessionHandoffs, candidate.SessionHandoffs) {
 		return r, errors.New("final safety check changed; project retained")
 	}
 	if err = AppendEvent(e.Config, Event{Type: "removal_started", PlanID: plan.ID, CandidateID: candidate.ID, Outcome: "preservation_verified"}); err != nil {
 		return r, err
 	}
-	if fresh.Kind == "worktree" {
+	if len(fresh.SessionHandoffs) > 0 {
+		if err = e.removeWithClaudeHandoff(ctx, fresh, &r); err != nil {
+			return r, err
+		}
+	} else if fresh.Kind == "worktree" {
 		if within(fresh.Path, fresh.CommonDir) {
 			return r, errors.New("shared Git directory would be removed")
 		}
