@@ -112,9 +112,12 @@ func New(version string) *cobra.Command {
 	review.Flags().BoolVar(&details, "details", false, "Show evidence and proposed future steps")
 	review.Flags().StringVar(&reviewProject, "project", "", "Show just one project ID from this report")
 	root.AddCommand(review)
+	root.AddCommand(actionsCommand(load, &configPath, &asJSON, false), actionsCommand(load, &configPath, &asJSON, true))
+	root.AddCommand(plansCommand(load, &asJSON))
 	var applyPlan, project, approval string
 	var preserveOnly bool
 	var reviewDetails bool
+	var nonInteractive bool
 	apply := &cobra.Command{Use: "apply", Short: "Approve projects individually, preserve and verify, then optionally remove", RunE: func(cmd *cobra.Command, _ []string) error {
 		e, err := load()
 		if err != nil {
@@ -127,11 +130,17 @@ func New(version string) *cobra.Command {
 		if approval != "" && (project == "" || approval != p.ID) {
 			return errors.New("non-interactive approval requires one --project and the exact --approve-plan digest")
 		}
+		if nonInteractive && approval == "" {
+			return errors.New("--non-interactive requires --project and exact --approve-plan; use actions --json to inspect suggestions first")
+		}
 		if project != "" {
 			found := false
 			for _, c := range p.Candidates {
 				if c.ID == project {
 					found = true
+					if !c.Eligible && !(preserveOnly && disk.CanPreserveSource(c)) {
+						return errors.New("selected project is blocked; use analyze --project to review suggested prerequisites")
+					}
 				}
 			}
 			if !found {
@@ -149,7 +158,7 @@ func New(version string) *cobra.Command {
 			if err := cmd.Context().Err(); err != nil {
 				return err
 			}
-			if !c.Eligible || (project != "" && c.ID != project) {
+			if (!c.Eligible && !(preserveOnly && disk.CanPreserveSource(c))) || (project != "" && c.ID != project) {
 				continue
 			}
 			approved := approval == p.ID
@@ -218,6 +227,7 @@ func New(version string) *cobra.Command {
 	apply.Flags().StringVar(&approval, "approve-plan", "", "Explicit non-interactive approval of this exact plan; requires --project")
 	apply.Flags().BoolVar(&preserveOnly, "preserve-only", false, "Preserve recovery without deleting the checkout")
 	apply.Flags().BoolVar(&reviewDetails, "review", false, "Show full evidence before each approval prompt")
+	apply.Flags().BoolVar(&nonInteractive, "non-interactive", false, "Never prompt; require exact per-project approval")
 	root.AddCommand(apply)
 	root.AddCommand(cacheCommand(load, &asJSON))
 	root.AddCommand(locationsCommand(load, &configPath, &asJSON))

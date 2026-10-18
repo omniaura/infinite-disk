@@ -17,6 +17,8 @@ func itoa(i int) string                 { return strconv.Itoa(i) }
 
 var validPlanID = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
+var ErrOperationInProgress = errors.New("another Infinite Disk operation is running; use status --json and retry after the audit finishes")
+
 const stateMarker = "Infinite Disk private state v1\n"
 
 func EnsureState(c Config) error {

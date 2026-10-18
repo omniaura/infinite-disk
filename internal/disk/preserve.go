@@ -224,7 +224,7 @@ func (e *Engine) Apply(ctx context.Context, plan Plan, candidateID, approvedPlan
 			break
 		}
 	}
-	if candidate == nil || !candidate.Eligible {
+	if candidate == nil || (remove && !candidate.Eligible) || (!remove && !CanPreserveSource(*candidate)) {
 		return r, errors.New("project is not an eligible candidate in this plan")
 	}
 	if !candidate.SessionsChecked {
@@ -236,7 +236,7 @@ func (e *Engine) Apply(ctx context.Context, plan Plan, candidateID, approvedPlan
 	}
 	defer release()
 	fresh := e.Inspect(ctx, candidate.Path, e.Activity(ctx))
-	if !fresh.Eligible || fresh.Fingerprint != candidate.Fingerprint || fresh.Head != candidate.Head || fresh.RemoteDigest != candidate.RemoteDigest || fresh.CommonDir != candidate.CommonDir || fresh.Kind != candidate.Kind || !sameHandoffs(fresh.SessionHandoffs, candidate.SessionHandoffs) {
+	if (remove && !fresh.Eligible) || (!remove && !CanPreserveSource(fresh)) || fresh.Fingerprint != candidate.Fingerprint || fresh.Head != candidate.Head || fresh.RemoteDigest != candidate.RemoteDigest || fresh.CommonDir != candidate.CommonDir || fresh.Kind != candidate.Kind || !sameHandoffs(fresh.SessionHandoffs, candidate.SessionHandoffs) {
 		return r, errors.New("project changed, became active, or no longer passes safety checks")
 	}
 	r = Receipt{Version: ProtocolVersion, PlanID: plan.ID, CandidateID: candidate.ID, Path: candidate.Path, ApprovedAt: e.Now().UTC(), Result: "approved", Steps: []Evidence{{"approval", "received", "Explicit per-project approval of an immutable plan"}}}

@@ -21,7 +21,7 @@ func acquireLock(c Config) (func(), error) {
 	f := os.NewFile(uintptr(fd), path)
 	if err = syscall.Flock(fd, syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		f.Close()
-		return nil, errors.New("another Infinite Disk operation is running")
+		return nil, ErrOperationInProgress
 	}
 	return func() { _ = syscall.Flock(fd, syscall.LOCK_UN); _ = f.Close() }, nil
 }

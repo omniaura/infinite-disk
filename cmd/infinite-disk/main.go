@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -22,11 +21,12 @@ func main() {
 	command := cli.New(version)
 	command.SilenceErrors = true
 	if err := command.ExecuteContext(ctx); err != nil {
+		asJSON, _ := command.PersistentFlags().GetBool("json")
 		if ctx.Err() != nil || errors.Is(err, context.Canceled) {
-			fmt.Fprintln(os.Stderr, "\nCancelled. No further actions will start; check receipts if an action had begun.")
+			cli.WriteError(os.Stderr, err, asJSON, true)
 			os.Exit(130)
 		}
-		fmt.Fprintln(os.Stderr, "Error:", err)
+		cli.WriteError(os.Stderr, err, asJSON, false)
 		os.Exit(1)
 	}
 }

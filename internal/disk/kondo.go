@@ -185,6 +185,7 @@ func (e *Engine) inspectCache(ctx context.Context, c Candidate, activity Activit
 	}
 	count := 0
 	newest := time.Time{}
+	inspectionBlocker := "artifact_inspection_incomplete"
 	err = filepath.WalkDir(c.Path, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -197,8 +198,13 @@ func (e *Engine) inspectCache(ctx context.Context, c Candidate, activity Activit
 			return errors.New("artifact inspection limit")
 		}
 		rel, _ := filepath.Rel(c.CommonDir, path)
-		if strings.EqualFold(d.Name(), ".git") || sensitiveName.MatchString(filepath.ToSlash(rel)) {
-			return errors.New("artifact contains private state or repository")
+		if strings.EqualFold(d.Name(), ".git") {
+			inspectionBlocker = "artifact_contains_nested_repository"
+			return errors.New("artifact contains repository")
+		}
+		if sensitiveName.MatchString(filepath.ToSlash(rel)) {
+			inspectionBlocker = "artifact_contains_private_names"
+			return errors.New("artifact contains private state")
 		}
 		info, err := d.Info()
 		if err != nil {
@@ -208,8 +214,18 @@ func (e *Engine) inspectCache(ctx context.Context, c Candidate, activity Activit
 			return errors.New("artifact crosses a mount or device metadata is unknown")
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
-			return errors.New("artifact contains a symlink; requires manual review")
+			// Package-manager .bin links are normal. Never traverse them:
+			// hash their target and require the resolved destination to stay
+			// inside this exact artifact. Escapes/broken chains still block.
+			link, linkErr := os.Readlink(path)
+			resolved, resolveErr := filepath.EvalSymlinks(path)
+			if linkErr != nil || resolveErr != nil || !within(c.Path, resolved) || resolved == c.Path {
+				inspectionBlocker = "artifact_symlink_outside_scope"
+				return errors.New("artifact symlink scope unknown or outside artifact")
+			}
+			fmt.Fprintf(h, "link %q %q\n", rel, link)
 		} else if !info.IsDir() && !info.Mode().IsRegular() {
+			inspectionBlocker = "artifact_special_file"
 			return errors.New("artifact contains special files")
 		}
 		if info.ModTime().After(newest) {
@@ -219,7 +235,7 @@ func (e *Engine) inspectCache(ctx context.Context, c Candidate, activity Activit
 		return nil
 	})
 	if err != nil {
-		block(&c, "artifact_uninspectable_or_private")
+		block(&c, inspectionBlocker)
 	}
 	// --no-index also checks force-added files; tracked-file rejection above is
 	// separate. Every artifact file must be ignored, not merely its parent.

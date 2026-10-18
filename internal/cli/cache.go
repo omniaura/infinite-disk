@@ -21,7 +21,7 @@ func cacheCommand(load func() (*disk.Engine, error), asJSON *bool) *cobra.Comman
 			return err
 		}
 		if !*asJSON {
-			fmt.Fprintln(cmd.ErrOrStderr(), "Scanning build artifacts with Kondo (report only). Ctrl+C cancels.")
+			fmt.Fprintln(cmd.ErrOrStderr(), "Scanning build artifacts with Kondo (report only; up to five minutes). Ctrl+C cancels.")
 		}
 		p, err := e.CacheScan(cmd.Context())
 		if err != nil {
@@ -48,20 +48,30 @@ func cacheCommand(load func() (*disk.Engine, error), asJSON *bool) *cobra.Comman
 		renderCaches(cmd.OutOrStdout(), p)
 		return nil
 	}}
-	var project string
+	var project, planID, approval string
+	var nonInteractive bool
 	apply := &cobra.Command{Use: "apply", Short: "Approve artifact directories one at a time; never remove source checkouts", RunE: func(cmd *cobra.Command, _ []string) error {
 		e, err := load()
 		if err != nil {
 			return err
 		}
-		p, err := disk.LoadPlan(e.CacheConfig(), "latest")
+		p, err := disk.LoadPlan(e.CacheConfig(), planID)
 		if err != nil {
 			return err
+		}
+		if approval != "" && (project == "" || approval != p.ID) {
+			return errors.New("non-interactive approval requires one --project and the exact cache --approve-plan digest")
+		}
+		if nonInteractive && approval == "" {
+			return errors.New("--non-interactive requires --project and exact cache --approve-plan; inspect caches review --json first")
 		}
 		if project != "" {
 			found := false
 			for _, c := range p.Candidates {
 				found = found || c.ID == project
+				if c.ID == project && !c.Eligible {
+					return errors.New("selected artifact is blocked; run caches scan for fresh evidence")
+				}
 			}
 			if !found {
 				return errors.New("artifact ID is not in this report")
@@ -70,30 +80,38 @@ func cacheCommand(load func() (*disk.Engine, error), asJSON *bool) *cobra.Comman
 		reader := bufio.NewReader(cmd.InOrStdin())
 		results := []disk.Receipt{}
 		for _, c := range p.Candidates {
+			if err := cmd.Context().Err(); err != nil {
+				return err
+			}
 			if !c.Eligible || (project != "" && c.ID != project) {
 				continue
 			}
-			fmt.Fprintln(cmd.ErrOrStderr())
-			wrapped(styled(cmd.ErrOrStderr(), toneHeading), "  ", fmt.Sprintf("Remove %s of regenerable artifacts: %s", size(c.SizeBytes), c.Path))
-			fmt.Fprintln(cmd.ErrOrStderr(), "Source and checkout stay. No commits or uploads. Reinstall/rebuild later.")
-			fmt.Fprint(styled(cmd.ErrOrStderr(), tonePrompt), "Delete this artifact directory? [y/N] (q quits, Ctrl+C cancels) ")
-			line, err := readLine(cmd.Context(), reader)
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			if err != nil {
-				return err
-			}
-			answer := strings.ToLower(strings.TrimSpace(line))
-			if answer == "q" || answer == "quit" {
-				break
-			}
-			if answer != "y" && answer != "yes" {
-				continue
+			if approval != p.ID {
+				fmt.Fprintln(cmd.ErrOrStderr())
+				wrapped(styled(cmd.ErrOrStderr(), toneHeading), "  ", fmt.Sprintf("Remove %s of regenerable artifacts: %s", size(c.SizeBytes), c.Path))
+				fmt.Fprintln(cmd.ErrOrStderr(), "Source and checkout stay. No commits or uploads. Reinstall/rebuild later.")
+				fmt.Fprint(styled(cmd.ErrOrStderr(), tonePrompt), "Delete this artifact directory? [y/N] (q quits, Ctrl+C cancels) ")
+				line, err := readLine(cmd.Context(), reader)
+				if errors.Is(err, io.EOF) {
+					break
+				}
+				if err != nil {
+					return err
+				}
+				answer := strings.ToLower(strings.TrimSpace(line))
+				if answer == "q" || answer == "quit" {
+					break
+				}
+				if answer != "y" && answer != "yes" {
+					continue
+				}
 			}
 			receipt, err := e.ApplyCache(cmd.Context(), p, c.ID, p.ID)
 			results = append(results, receipt)
 			if err != nil {
+				if *asJSON {
+					_ = json.NewEncoder(cmd.OutOrStdout()).Encode(results)
+				}
 				return err
 			}
 			if !*asJSON {
@@ -106,6 +124,9 @@ func cacheCommand(load func() (*disk.Engine, error), asJSON *bool) *cobra.Comman
 		return nil
 	}}
 	apply.Flags().StringVar(&project, "project", "", "Review just one artifact ID")
+	apply.Flags().StringVar(&planID, "plan", "latest", "Exact saved cache plan ID")
+	apply.Flags().StringVar(&approval, "approve-plan", "", "Explicit per-artifact approval of the exact cache plan; requires --project")
+	apply.Flags().BoolVar(&nonInteractive, "non-interactive", false, "Never prompt; require exact per-artifact approval")
 	root.AddCommand(scan, review, apply)
 	return root
 }

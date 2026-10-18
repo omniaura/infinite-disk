@@ -157,6 +157,51 @@ func TestCacheSafetyBlockers(t *testing.T) {
 		})
 	}
 }
+
+func TestCacheInternalPackageLinksAreHashedAndNeverFollowedForRemoval(t *testing.T) {
+	f, c := cacheFixture(t)
+	link := filepath.Join(c.Path, "bin-link")
+	if err := os.Symlink("package/index.js", link); err != nil {
+		t.Fatal(err)
+	}
+	f.e.Now = func() time.Time { return time.Now().Add(31 * 24 * time.Hour) }
+	c = f.e.inspectCache(context.Background(), c, Activity{Known: true})
+	eligible(t, c)
+	p, err := SavePlan(f.e.CacheConfig(), Plan{Version: 1, CreatedAt: f.e.Now(), ConfigDigest: ConfigDigest(f.e.CacheConfig()), Candidates: []Candidate{c}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Symlink(filepath.Join(f.repo, "source.txt"), link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.e.ApplyCache(context.Background(), p, c.ID, p.ID); err == nil {
+		t.Fatal("changed escaping link was removed")
+	}
+	exists(t, filepath.Join(f.repo, "source.txt"))
+	exists(t, c.Path)
+	if err = os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Symlink("package/index.js", link); err != nil {
+		t.Fatal(err)
+	}
+	c = f.e.inspectCache(context.Background(), c, Activity{Known: true})
+	eligible(t, c)
+	p, err = SavePlan(f.e.CacheConfig(), Plan{Version: 1, CreatedAt: f.e.Now(), ConfigDigest: ConfigDigest(f.e.CacheConfig()), Candidates: []Candidate{c}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.e.ApplyCache(context.Background(), p, c.ID, p.ID); err != nil {
+		t.Fatal(err)
+	}
+	exists(t, filepath.Join(f.repo, "source.txt"))
+	if _, err = os.Lstat(c.Path); !os.IsNotExist(err) {
+		t.Fatal("artifact not removed")
+	}
+}
 func TestCacheChangedOrActiveAfterReportRetained(t *testing.T) {
 	for _, mode := range []string{"changed", "active", "unknown", "expired", "config"} {
 		t.Run(mode, func(t *testing.T) {
