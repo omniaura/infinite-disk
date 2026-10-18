@@ -22,7 +22,7 @@ func TestTriageBoundsLargeRealInventoryWithoutChangingSafety(t *testing.T) {
 		c.Blockers = []string{"coding_sessions_require_native_handoff"}
 		p.Candidates = append(p.Candidates, c)
 	}
-	write(t, filepath.Join(f.e.Config.StateDir, "agent/bridge.mjs"), `let raw="";for await(const c of process.stdin)raw+=c;const input=JSON.parse(raw);if(input.candidates.length!==20||input.candidates[0].size_bytes!==255||input.candidates[19].size_bytes!==236)process.exit(1);process.stdout.write(JSON.stringify({version:1,recommendations:[],steps:[{check:"inventory_summary",outcome:"performed"}],capabilities:["inventory_summary","inspect_project","suggest_action"]}));`)
+	write(t, filepath.Join(f.e.Config.StateDir, "agent/bridge.mjs"), `let raw="";for await(const c of process.stdin)raw+=c;const input=JSON.parse(raw);if(input.candidates.length!==20||input.candidates[0].size_bytes!==255||input.candidates[19].size_bytes!==236)process.exit(1);process.stdout.write(JSON.stringify({version:1,requests:2,recommendations:[],steps:[{check:"inventory_summary",outcome:"performed"}],capabilities:["inventory_summary","inspect_project","suggest_action"]}));`)
 	result, err := f.e.Triage(context.Background(), p)
 	if err != nil || len(result.Candidates) != 255 {
 		t.Fatal(err)
@@ -60,7 +60,7 @@ func TestGoPiBoundaryRejectsInventedIDsAndTransmitsOnlyMetadata(t *testing.T) {
 			case "extra tool":
 				capabilities = `["inventory_summary","bash"]`
 			}
-			script := `let raw="";for await(const c of process.stdin)raw+=c;const input=JSON.parse(raw);for(const c of input.candidates){for(const key of Object.keys(c)){if(!["id","eligible","age_days","size_bytes","size_complete","dirty_files","blockers","analysis"].includes(key))process.exit(2);}}process.stdout.write(JSON.stringify({version:1,recommendations:[{candidate_id:"` + id + `",priority:1,decision:"` + decision + `",reason:"fixture metadata",proposed_steps:[]}],steps:[{check:"inventory_summary",outcome:"performed"}],capabilities:` + capabilities + `}));`
+			script := `let raw="";for await(const c of process.stdin)raw+=c;const input=JSON.parse(raw);for(const key of Object.keys(input.candidates[0])){if(!["id","eligible","age_days","size_bytes","size_complete","dirty_files","blockers","analysis"].includes(key))process.exit(2);}process.stdout.write(JSON.stringify({version:1,requests:2,recommendations:[{candidate_id:"` + id + `",priority:1,decision:"` + decision + `",reason:"fixture metadata",proposed_steps:[]}],steps:[{check:"inventory_summary",outcome:"performed"}],capabilities:` + capabilities + `}));`
 			write(t, filepath.Join(f.e.Config.StateDir, "agent", "bridge.mjs"), script)
 			result, err := f.e.Triage(context.Background(), p)
 			if kind == "valid" {

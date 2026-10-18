@@ -163,6 +163,7 @@ func New(version string) *cobra.Command {
 	review.Flags().StringVar(&reviewProject, "project", "", "Show just one project ID from this report")
 	root.AddCommand(review)
 	root.AddCommand(actionsCommand(load, &configPath, &asJSON, false), actionsCommand(load, &configPath, &asJSON, true))
+	root.AddCommand(privateCommand(load, &asJSON))
 	root.AddCommand(plansCommand(load, &asJSON))
 	var applyPlan, project, approval string
 	var preserveOnly bool

@@ -53,6 +53,7 @@ type Candidate struct {
 	SessionsChecked bool             `json:"sessions_checked,omitempty"`
 	SessionHandoffs []ClaudeHandoff  `json:"session_handoffs,omitempty"`
 	Analysis        *ProjectAnalysis `json:"analysis,omitempty"`
+	PrivateArchives []string         `json:"private_archives,omitempty"`
 }
 
 type Space struct {
@@ -74,10 +75,26 @@ type Plan struct {
 	Warnings           []string         `json:"warnings"`
 	Recommendations    []Recommendation `json:"recommendations,omitempty"`
 	AgentSteps         []Evidence       `json:"agent_steps,omitempty"`
+	AgentRun           *AgentRun        `json:"agent_run,omitempty"`
 	Locations          []Location       `json:"locations,omitempty"`
 	DiscoveredProjects int              `json:"discovered_projects,omitempty"`
 	DiscoveryComplete  bool             `json:"discovery_complete,omitempty"`
 	SessionWarnings    []string         `json:"session_warnings,omitempty"`
+}
+
+// Operational inference evidence only. No prompts, paths, credentials or
+// provider responses belong here. Unknown usage is not zero cost.
+type AgentRun struct {
+	Provider      string    `json:"provider"`
+	Model         string    `json:"model"`
+	StartedAt     time.Time `json:"started_at"`
+	DurationMS    int64     `json:"duration_ms"`
+	Requests      int       `json:"requests"`
+	Projects      int       `json:"projects"`
+	Advised       int       `json:"advised"`
+	InputTokens   uint64    `json:"input_tokens"`
+	OutputTokens  uint64    `json:"output_tokens"`
+	UsageReported bool      `json:"usage_reported"`
 }
 
 type Recommendation struct {

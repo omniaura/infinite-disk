@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 )
@@ -236,7 +237,7 @@ func (e *Engine) Apply(ctx context.Context, plan Plan, candidateID, approvedPlan
 	}
 	defer release()
 	fresh := e.Inspect(ctx, candidate.Path, e.Activity(ctx))
-	if (remove && !fresh.Eligible) || (!remove && !CanPreserveSource(fresh)) || fresh.Fingerprint != candidate.Fingerprint || fresh.Head != candidate.Head || fresh.RemoteDigest != candidate.RemoteDigest || fresh.CommonDir != candidate.CommonDir || fresh.Kind != candidate.Kind || !sameHandoffs(fresh.SessionHandoffs, candidate.SessionHandoffs) {
+	if (remove && !fresh.Eligible) || (!remove && !CanPreserveSource(fresh)) || fresh.Fingerprint != candidate.Fingerprint || fresh.Head != candidate.Head || fresh.RemoteDigest != candidate.RemoteDigest || fresh.CommonDir != candidate.CommonDir || fresh.Kind != candidate.Kind || !sameHandoffs(fresh.SessionHandoffs, candidate.SessionHandoffs) || !slices.Equal(fresh.PrivateArchives, candidate.PrivateArchives) {
 		return r, errors.New("project changed, became active, or no longer passes safety checks")
 	}
 	r = Receipt{Version: ProtocolVersion, PlanID: plan.ID, CandidateID: candidate.ID, Path: candidate.Path, ApprovedAt: e.Now().UTC(), Result: "approved", Steps: []Evidence{{"approval", "received", "Explicit per-project approval of an immutable plan"}}}
@@ -280,7 +281,7 @@ func (e *Engine) Apply(ctx context.Context, plan Plan, candidateID, approvedPlan
 	// Re-inspect ignored/private state too: it is deliberately not part of the
 	// source fingerprint and may have appeared while the recovery push ran.
 	final := e.Inspect(ctx, candidate.Path, active)
-	if !final.Eligible || final.Fingerprint != candidate.Fingerprint || !sameHandoffs(final.SessionHandoffs, candidate.SessionHandoffs) {
+	if !final.Eligible || final.Fingerprint != candidate.Fingerprint || !sameHandoffs(final.SessionHandoffs, candidate.SessionHandoffs) || !slices.Equal(final.PrivateArchives, candidate.PrivateArchives) {
 		return r, errors.New("final safety check changed; project retained")
 	}
 	if err = AppendEvent(e.Config, Event{Type: "removal_started", PlanID: plan.ID, CandidateID: candidate.ID, Outcome: "preservation_verified"}); err != nil {
@@ -317,8 +318,9 @@ func (e *Engine) Apply(ctx context.Context, plan Plan, candidateID, approvedPlan
 			_ = os.Rename(destination, candidate.Path)
 			return r, err
 		}
-		fp, _, _, _, checkErr := fingerprint(ctx, destination)
-		if checkErr != nil || fp != candidate.Fingerprint {
+		check := e.inspectSource(ctx, destination, e.Activity(ctx))
+		archiveCheck := *candidate
+		if !check.Eligible || check.Fingerprint != candidate.Fingerprint || e.verifyPrivateArchives(ctx, &archiveCheck) != nil || !slices.Equal(archiveCheck.PrivateArchives, candidate.PrivateArchives) {
 			if os.Rename(destination, candidate.Path) == nil {
 				r.QuarantinePath = ""
 			}
