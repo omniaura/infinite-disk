@@ -186,3 +186,44 @@ func TestPartialCloneBlockedBeforeRecoveryPush(t *testing.T) {
 		})
 	}
 }
+
+func TestFilteredLinkedWorktreeKeepsCommonHistoryAndVerifiesWorkingSource(t *testing.T) {
+	f := newFixture(t)
+	head := runGit(t, f.repo, "rev-parse", "HEAD")
+	runGit(t, f.repo, "tag", "retained-local-history", head)
+	linked := filepath.Join(f.root, "linked-worktree")
+	runGit(t, f.repo, "worktree", "add", "-b", "fixture-linked", linked, "main")
+	runGit(t, f.repo, "config", "remote.origin.promisor", "true")
+	runGit(t, f.repo, "config", "remote.origin.partialclonefilter", "blob:none")
+	write(t, filepath.Join(f.repo, ".git/objects/pack/fixture.promisor"), "")
+	old(t, filepath.Join(linked, "source.txt"))
+	write(t, filepath.Join(linked, "unfinished.txt"), "unfinished fixture work\n")
+	old(t, filepath.Join(linked, "unfinished.txt"))
+	p, err := f.e.RunReport(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var selected Candidate
+	for _, c := range p.Candidates {
+		if c.Path == linked {
+			selected = c
+		}
+	}
+	if !selected.Eligible || selected.Kind != "worktree" {
+		t.Fatal("surviving shared database treated as deleted clone", selected.Blockers)
+	}
+	r, err := f.e.Apply(context.Background(), p, selected.ID, p.ID, true)
+	if err != nil || r.Result != "removed" || r.BundlePath != "" {
+		t.Fatal(r.Result, err)
+	}
+	exists(t, f.repo)
+	if runGit(t, f.repo, "rev-parse", "HEAD") != head || runGit(t, f.repo, "rev-parse", "retained-local-history") != head {
+		t.Fatal("shared history changed")
+	}
+	if got := runGit(t, f.remote, "show", r.RecoveryCommit+":unfinished.txt"); got != "unfinished fixture work" {
+		t.Fatal("working source was not preserved", got)
+	}
+	if !slices.ContainsFunc(r.Steps, func(s Evidence) bool { return s.Check == "remote_recovery" && s.Outcome == "verified" }) {
+		t.Fatal("remote recovery not verified")
+	}
+}

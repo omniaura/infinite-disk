@@ -211,14 +211,19 @@ func (e *Engine) inspectSource(ctx context.Context, path string, activity Activi
 	if shallow, err := gitText(ctx, path, "rev-parse", "--is-shallow-repository"); err != nil || shallow != "false" {
 		block(&c, "shallow_repository_requires_manual_preservation")
 	}
-	if _, err := gitText(ctx, path, "config", "--local", "--name-only", "--get-regexp", `^(extensions\.partialclone|remote\..*\.(promisor|partialclonefilter))$`); err == nil {
-		block(&c, "partial_clone_requires_materialized_recovery")
-	}
-	if entries, err := os.ReadDir(filepath.Join(common, "objects", "pack")); err == nil {
-		for _, entry := range entries {
-			if strings.HasSuffix(entry.Name(), ".promisor") {
-				block(&c, "partial_clone_requires_materialized_recovery")
-				break
+	// Standalone clones need a self-contained bundle before their Git database
+	// is deleted. Linked worktrees keep the already-validated common database;
+	// they must not be blocked just because that surviving database is filtered.
+	if c.Kind == "clone" {
+		if _, err := gitText(ctx, path, "config", "--local", "--name-only", "--get-regexp", `^(extensions\.partialclone|remote\..*\.(promisor|partialclonefilter))$`); err == nil {
+			block(&c, "partial_clone_requires_materialized_recovery")
+		}
+		if entries, err := os.ReadDir(filepath.Join(common, "objects", "pack")); err == nil {
+			for _, entry := range entries {
+				if strings.HasSuffix(entry.Name(), ".promisor") {
+					block(&c, "partial_clone_requires_materialized_recovery")
+					break
+				}
 			}
 		}
 	}
