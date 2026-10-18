@@ -6,26 +6,30 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"time"
 
 	"github.com/omniaura/infinite-disk/internal/disk"
 	"github.com/spf13/cobra"
 )
 
 type actionItem struct {
-	ID        string                `json:"id"`
-	Path      string                `json:"path"`
-	SizeBytes uint64                `json:"size_bytes"`
-	Eligible  bool                  `json:"eligible"`
-	Blockers  []string              `json:"blockers"`
-	Analysis  *disk.ProjectAnalysis `json:"analysis,omitempty"`
-	PiAdvice  *disk.Recommendation  `json:"pi_advice,omitempty"`
-	Commands  map[string][]string   `json:"commands,omitempty"`
+	ID         string                `json:"id"`
+	PlanID     string                `json:"plan_id"`
+	ObservedAt time.Time             `json:"observed_at"`
+	Path       string                `json:"path"`
+	SizeBytes  uint64                `json:"size_bytes"`
+	Eligible   bool                  `json:"eligible"`
+	Blockers   []string              `json:"blockers"`
+	Analysis   *disk.ProjectAnalysis `json:"analysis,omitempty"`
+	PiAdvice   *disk.Recommendation  `json:"pi_advice,omitempty"`
+	Commands   map[string][]string   `json:"commands,omitempty"`
 }
 type actionReport struct {
 	Version         int          `json:"version"`
 	Mode            string       `json:"mode"`
 	ApprovalGranted bool         `json:"approval_granted"`
-	PlanID          string       `json:"plan_id"`
+	PlanID          string       `json:"plan_id,omitempty"`
+	SavedBatches    int          `json:"saved_batches"`
 	Total           int          `json:"total"`
 	Matching        int          `json:"matching"`
 	Returned        int          `json:"returned"`
@@ -34,7 +38,7 @@ type actionReport struct {
 }
 
 func projectActions(p disk.Plan, config, project, filter string, limit int) (actionReport, error) {
-	r := actionReport{Version: 1, Mode: "suggestions-only", PlanID: p.ID, Total: len(p.Candidates), Projects: []actionItem{}, Warnings: append(append([]string{}, p.Warnings...), p.SessionWarnings...)}
+	r := actionReport{Version: 1, Mode: "suggestions-only", PlanID: p.ID, SavedBatches: 1, Total: len(p.Candidates), Projects: []actionItem{}, Warnings: append(append([]string{}, p.Warnings...), p.SessionWarnings...)}
 	if limit < 1 || limit > 5000 {
 		return r, errors.New("--limit must be between 1 and 5000")
 	}
@@ -56,7 +60,11 @@ func projectActions(p disk.Plan, config, project, filter string, limit int) (act
 		if len(r.Projects) >= limit {
 			continue
 		}
-		item := actionItem{ID: c.ID, Path: c.Path, SizeBytes: c.SizeBytes, Eligible: c.Eligible, Blockers: c.Blockers, Analysis: c.Analysis, Commands: map[string][]string{}}
+		observed := p.CreatedAt
+		if c.Analysis != nil {
+			observed = c.Analysis.ObservedAt
+		}
+		item := actionItem{ID: c.ID, PlanID: p.ID, ObservedAt: observed, Path: c.Path, SizeBytes: c.SizeBytes, Eligible: c.Eligible, Blockers: c.Blockers, Analysis: c.Analysis, Commands: map[string][]string{}}
 		for i := range p.Recommendations {
 			if p.Recommendations[i].CandidateID == c.ID {
 				r := p.Recommendations[i]
@@ -86,14 +94,20 @@ func projectActions(p disk.Plan, config, project, filter string, limit int) (act
 
 func renderActions(w io.Writer, r actionReport) {
 	fmt.Fprintln(styled(w, toneHeading), "\nSUGGESTED ACTIONS  |  Nothing applied")
-	fmt.Fprintf(w, "Showing %d of %d matching projects (%d in saved batch).\n", r.Returned, r.Matching, r.Total)
+	fmt.Fprintf(w, "Showing %d of %d matching projects (%d unique paths; %d saved batches).\n", r.Returned, r.Matching, r.Total, r.SavedBatches)
 	for _, c := range r.Projects {
 		state := "NEEDS ANALYSIS"
 		if c.Eligible {
 			state = "READY FOR APPROVAL"
+			if r.SavedBatches > 1 {
+				state = "READY IN SAVED REPORT"
+			}
 		}
 		fmt.Fprintf(styled(w, toneHeading), "\n%s  %s  [%s]\n", size(c.SizeBytes), state, c.ID)
 		wrapped(w, "  ", c.Path)
+		if r.SavedBatches > 1 {
+			fmt.Fprintf(w, "  Observed: %s; approval rechecks current state.\n", c.ObservedAt.Local().Format("Jan 2, 15:04"))
+		}
 		for _, b := range c.Blockers {
 			wrapped(styled(w, toneWarning), "  ", blockerText(b))
 		}
@@ -137,6 +151,7 @@ func actionsCommand(load func() (*disk.Engine, error), config *string, asJSON *b
 	var plan, project, filter string
 	var limit int
 	var withAgent bool
+	var allPlans bool
 	name := "actions"
 	short := "List compact structured suggestions and exact approval commands; apply nothing"
 	if analyze {
@@ -147,6 +162,20 @@ func actionsCommand(load func() (*disk.Engine, error), config *string, asJSON *b
 		e, err := load()
 		if err != nil {
 			return err
+		}
+		if allPlans {
+			if cmd.Flags().Changed("plan") {
+				return errors.New("--all-plans cannot be combined with --plan")
+			}
+			r, err := allProjectActions(e.Config, *config, project, filter, limit)
+			if err != nil {
+				return err
+			}
+			if *asJSON {
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(r)
+			}
+			renderActions(cmd.OutOrStdout(), r)
+			return nil
 		}
 		p, err := disk.LoadPlan(e.Config, plan)
 		if err != nil {
@@ -193,6 +222,9 @@ func actionsCommand(load func() (*disk.Engine, error), config *string, asJSON *b
 	cmd.Flags().IntVar(&limit, "limit", 20, "Maximum projects, largest first (1-5000)")
 	if analyze {
 		cmd.Flags().BoolVar(&withAgent, "agent", false, "Ask Pi to prioritize the metadata-backed suggestions (explicit paid run)")
+	}
+	if !analyze {
+		cmd.Flags().BoolVar(&allPlans, "all-plans", false, "Combine saved batches for review; newest per path, original approval digests retained")
 	}
 	return cmd
 }

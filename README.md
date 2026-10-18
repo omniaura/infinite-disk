@@ -63,6 +63,7 @@ For an explicitly authorized automation, `caches apply --plan CACHE_DIGEST --pro
 ```sh
 infinite-disk plans                            # rotating saved batches; do not sum them
 infinite-disk actions --filter needs-analysis  # compact suggestions, largest first
+infinite-disk actions --all-plans --filter ready # deduplicate all saved batches
 infinite-disk analyze --filter needs-analysis --limit 20
 infinite-disk actions --plan EXACT_DIGEST --json --limit 10
 # Optional paid prioritization of metadata-backed suggestions:

@@ -12,6 +12,8 @@ Infinite Disk separates **observation → suggestion → explicit approval → r
 
 Missing source checks are **unknown**, not zero changes. Missing local origin-tracking refs are **unknown**, not zero unpublished commits. The local HEAD/tracking comparison never fetches and cannot prove current remote durability. Ignored examples (maximum 25) distinguish private names, agent state, dependency/build candidates and unknown data; directory entries do not prove the contents are regenerable. Kondo remains the artifact catalog, independently checked before any removal. Current source fingerprints/secret checks are conservative, not comprehensive scanning of already committed history.
 
+`actions --all-plans --filter ready --json` reviews the saved batches together. It deduplicates by path **before filtering** so a newer blocked observation hides an older ready result. Each project retains its own `plan_id`, observation timestamp, exact approval argv and original expiry; there is no synthetic combined approval digest and `approval_granted` stays false. This is historical coverage, not a fresh coherent snapshot. Parent/child paths can overlap, so no summed savings total is emitted. Use each offered `analyze` command for fresh evidence; `--all-plans` cannot be combined with a single `--plan` and is deliberately not an apply/analyze batch-approval flag.
+
 ## Approval and supported actions
 
 `commands` contains argv arrays built by Go, never shell text from a model. Preserve argv boundaries, including paths containing spaces. An executable suggestion is still not approved. Unsupported suggestions have no destructive command.

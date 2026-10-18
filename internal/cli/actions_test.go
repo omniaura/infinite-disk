@@ -50,6 +50,38 @@ func TestBlockedSourceSafeProjectOffersPreserveOnlyNotRemoval(t *testing.T) {
 	}
 }
 
+func TestAllBatchesKeepRealApprovalDigestsAndNewestBlocker(t *testing.T) {
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := disk.DefaultConfig()
+	c.Roots = []string{filepath.Join(base, "projects")}
+	c.StateDir = filepath.Join(base, "state")
+	before := time.Now().Add(-time.Hour)
+	old := disk.Plan{Version: 1, CreatedAt: before, ConfigDigest: disk.ConfigDigest(c), Candidates: []disk.Candidate{{ID: "same", Path: "/fixture/same", Eligible: true, SizeBytes: 100}, {ID: "ready", Path: "/fixture/ready", Eligible: true, SizeBytes: 50}}}
+	old, err = disk.SavePlan(c, old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newer := disk.Plan{Version: 1, CreatedAt: time.Now(), ConfigDigest: disk.ConfigDigest(c), Candidates: []disk.Candidate{{ID: "same", Path: "/fixture/same", Eligible: false, SizeBytes: 100, Blockers: []string{"project_in_use"}}}}
+	newer, err = disk.SavePlan(c, newer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := allProjectActions(c, "config", "", "ready", 20)
+	if err != nil || r.ApprovalGranted || r.SavedBatches != 2 || r.Total != 2 || r.Matching != 1 || r.PlanID != "" || r.Projects[0].ID != "ready" || r.Projects[0].PlanID != old.ID {
+		t.Fatal(r, err)
+	}
+	if !strings.Contains(strings.Join(r.Projects[0].Commands["remove_checkout"], "|"), old.ID) {
+		t.Fatal("synthetic approval digest")
+	}
+	r, err = allProjectActions(c, "config", "same", "all", 20)
+	if err != nil || len(r.Projects) != 1 || r.Projects[0].Eligible || r.Projects[0].PlanID != newer.ID || r.Projects[0].Commands["remove_checkout"] != nil {
+		t.Fatal("new blocker lost", r, err)
+	}
+}
+
 func TestMachineErrorsAreVersionedAndActionable(t *testing.T) {
 	for _, tc := range []struct {
 		err       error
