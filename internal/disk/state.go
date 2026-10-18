@@ -202,7 +202,7 @@ func (e *Engine) RunReport(ctx context.Context) (Plan, error) {
 		}
 		if cursor.Version == ProtocolVersion && cursor.ConfigDigest == ConfigDigest(e.Config) {
 			e.scanAfter = cursor.LastPath
-			if len(cursor.Projects) <= 10000 && cursor.Complete && !cursor.DiscoveredAt.IsZero() && e.Now().Sub(cursor.DiscoveredAt) >= 0 && e.Now().Sub(cursor.DiscoveredAt) < 15*time.Minute {
+			if len(cursor.Projects) <= 10000 && (cursor.Complete || len(cursor.Projects) > 0) && !cursor.DiscoveredAt.IsZero() && e.Now().Sub(cursor.DiscoveredAt) >= 0 && e.Now().Sub(cursor.DiscoveredAt) < 15*time.Minute {
 				valid := true
 				seen := map[string]bool{}
 				var canonicalRoots []string
@@ -230,7 +230,7 @@ func (e *Engine) RunReport(ctx context.Context) (Plan, error) {
 					}
 				}
 				if valid {
-					e.discovery, e.discoveredAt, e.discoveryComplete = cursor.Projects, cursor.DiscoveredAt, true
+					e.discovery, e.discoveredAt, e.discoveryComplete = cursor.Projects, cursor.DiscoveredAt, cursor.Complete
 				}
 			}
 		} else {

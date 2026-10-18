@@ -4,7 +4,8 @@
 
 - Checkpointed 100-project scan batches, explicit bounded multi-batch runs, and
   streaming JSON Lines for rolling scan/triage/review workflows.
-- Reuse complete discovery indexes for 15 minutes with explicit refresh; never
+- Reuse discovery indexes for 15 minutes with explicit partial-coverage warnings
+  and refresh; never
   reuse source/activity/session safety decisions. Bound breadth-first discovery
   separately so it cannot consume the entire inspection budget.
 - Add phase/count progress, per-project time limits, compact AI batches, exact

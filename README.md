@@ -67,11 +67,12 @@ infinite-disk scan --agent --batch-size 100 --batches 3
 
 Interactive `scan` defaults to 100 projects per batch (also capped by the
 configuration's `max_projects`). It saves an immutable report before AI triage.
-Separate invocations resume after the last inspected project. Complete discovery
-indexes are reused for 15 minutes; `scan --refresh` finds newly created folders
+Separate invocations resume after the last inspected project. Discovery
+indexes are reused for 15 minutes; partial indexes remain explicitly marked
+partial, never treated as whole-disk coverage. `scan --refresh` looks for new folders
 immediately. Only discovery paths are cached: activity, sessions, source and
 recovery prerequisites are rechecked for each new batch and again before apply.
-Discovery gets at most 45 seconds of the five-minute scan; an individual project
+Discovery gets a 45-second traversal budget within the five-minute scan; an individual project
 gets 15 seconds. Incomplete checks stay blocked, and partial coverage is explicit.
 
 Pi receives the largest **20** anonymized metadata records from each batch and

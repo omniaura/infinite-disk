@@ -358,7 +358,7 @@ func (e *Engine) Scan(ctx context.Context) (Plan, error) {
 	// starts every root before descending through a large early repository.
 	discovered, complete := e.discovery, e.discoveryComplete
 	var warnings []string
-	if e.RefreshDiscovery || !complete || e.discoveredAt.IsZero() || e.Now().Sub(e.discoveredAt) < 0 || e.Now().Sub(e.discoveredAt) >= 15*time.Minute {
+	if e.RefreshDiscovery || (!complete && len(discovered) == 0) || e.discoveredAt.IsZero() || e.Now().Sub(e.discoveredAt) < 0 || e.Now().Sub(e.discoveredAt) >= 15*time.Minute {
 		e.progress("Discovering project folders (up to 45 seconds)", 0, 0)
 		discoveryCtx, stopDiscovery := context.WithTimeout(ctx, 45*time.Second)
 		discovered, complete, warnings = discoverProjects(discoveryCtx, e.Config.Roots, e.Config.MaxDepth, os.ReadDir)
@@ -367,6 +367,9 @@ func (e *Engine) Scan(ctx context.Context) (Plan, error) {
 	} else {
 		p.DiscoveryCached = true
 		e.progress("Reusing recent discovery index; rechecking each selected project", 0, len(discovered))
+		if !complete {
+			warnings = append(warnings, "Reusing a partial discovery index; more project folders may remain undiscovered. Use scan --refresh to refresh discovery.")
+		}
 	}
 	discoveredAt := e.discoveredAt
 	p.DiscoveredAt = &discoveredAt

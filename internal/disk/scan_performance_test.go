@@ -2,9 +2,11 @@ package disk
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -33,6 +35,32 @@ func TestDiscoveryBreadthFirstAndSkipsGeneratedTreesAndSymlinks(t *testing.T) {
 	}
 	if slices.Index(rows, filepath.Join(b, "project")) > slices.Index(rows, filepath.Join(a, "project/workspaces/nested")) {
 		t.Fatal("not breadth first", rows)
+	}
+}
+
+func TestCachedPartialDiscoveryNeverClaimsCompleteCoverage(t *testing.T) {
+	f := newFixture(t)
+	if _, err := f.e.RunReport(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	cursor := filepath.Join(f.e.Config.StateDir, "discovery-cursor.json")
+	b, err := os.ReadFile(cursor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snapshot map[string]any
+	if err = json.Unmarshal(b, &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	snapshot["complete"] = false
+	b, err = json.Marshal(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, cursor, string(b))
+	p, err := f.e.RunReport(context.Background())
+	if err != nil || !p.DiscoveryCached || p.DiscoveryComplete || !strings.Contains(strings.Join(p.Warnings, " "), "partial discovery") {
+		t.Fatal("partial coverage lost", p.Warnings, err)
 	}
 }
 
