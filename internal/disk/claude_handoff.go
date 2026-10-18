@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -41,16 +42,24 @@ type SessionFile struct {
 }
 
 type claudeMetadata struct {
-	CWD         string
-	Binding     string
-	BindingSeen bool
-	Messages    int
+	CWD           string
+	Binding       string
+	BindingSeen   bool
+	RelocatedSeen bool
+	Messages      int
+	References    []string
 }
+
+var claudeCWDField = regexp.MustCompile(`"cwd"\s*:\s*("(?:[^"\\]|\\.)*")`)
 
 // The internal metadata reader is version-gated at mutation time. Unknown,
 // oversized, malformed, compressed, or ambiguous history cannot be promoted.
-func readClaudeMetadata(file string, id string) (claudeMetadata, error) {
+func readClaudeMetadataContext(ctx context.Context, file, id string, associationOnly bool) (claudeMetadata, error) {
 	var m claudeMetadata
+	info, err := os.Lstat(file)
+	if err != nil || !info.Mode().IsRegular() || info.Size() > 512<<20 {
+		return m, errors.New("Claude transcript is unavailable or exceeds the inspection budget")
+	}
 	f, err := os.Open(file)
 	if err != nil {
 		return m, err
@@ -59,6 +68,31 @@ func readClaudeMetadata(file string, id string) (claudeMetadata, error) {
 	scanner := bufio.NewScanner(io.LimitReader(f, (512<<20)+1))
 	scanner.Buffer(make([]byte, 4096), 16<<20)
 	for scanner.Scan() {
+		if ctx.Err() != nil {
+			return m, errors.New("Claude metadata inspection was cancelled")
+		}
+		line := scanner.Bytes()
+		if associationOnly {
+			for _, field := range claudeCWDField.FindAllSubmatch(line, 65) {
+				if len(field[1]) > 16386 {
+					return m, errors.New("Claude cwd metadata exceeds its budget")
+				}
+				var cwd string
+				if json.Unmarshal(field[1], &cwd) == nil && sessionPath(cwd) && !slices.Contains(m.References, cwd) {
+					m.References = append(m.References, cwd)
+					if len(m.References) > 64 {
+						return m, errors.New("Claude cwd reference budget exceeded")
+					}
+				}
+			}
+		}
+		// Full-file association is essential: hook-created worktrees may keep
+		// their transcript in the PRIMARY namespace, and the binding can be
+		// far beyond any bounded header/tail. Avoid decoding conversation bodies
+		// once a cwd is known; only routing metadata needs decoding here.
+		if associationOnly && m.CWD != "" && !bytes.Contains(line, []byte(`"worktree-state"`)) && !bytes.Contains(line, []byte(`"worktreeSession"`)) && !bytes.Contains(line, []byte(`"relocated"`)) {
+			continue
+		}
 		var row struct {
 			Type      string          `json:"type"`
 			SessionID string          `json:"sessionId"`
@@ -76,6 +110,7 @@ func readClaudeMetadata(file string, id string) (claudeMetadata, error) {
 			m.CWD = row.CWD
 		}
 		if row.Type == "relocated" {
+			m.RelocatedSeen = true
 			if !sessionPath(row.Relocated) {
 				return m, errors.New("Claude relocation metadata is unsupported")
 			}
@@ -96,9 +131,12 @@ func readClaudeMetadata(file string, id string) (claudeMetadata, error) {
 				}
 				m.Binding = binding.Path
 			}
+		} else if row.Worktree != nil {
+			return m, errors.New("Claude routing metadata version is unsupported")
 		}
 	}
-	if scanner.Err() != nil || m.Messages == 0 || !sessionPath(m.CWD) {
+	slices.Sort(m.References)
+	if scanner.Err() != nil || !associationOnly && (m.Messages == 0 || !sessionPath(m.CWD)) || associationOnly && m.Messages > 0 && m.CWD == "" && m.Binding == "" {
 		return m, errors.New("Claude transcript is incomplete or has no conversation")
 	}
 	return m, nil
@@ -267,7 +305,7 @@ func (e *Engine) prepareClaudeHandoffs(ctx context.Context, c *Candidate, activi
 		if s.Provider != "Claude Code" || within(c.Path, s.Store) || activity.Busy(s.Store) || activity.Busy(s.Checkout) {
 			return
 		}
-		m, err := readClaudeMetadata(s.Store, s.ID)
+		m, err := readClaudeMetadataContext(ctx, s.Store, s.ID, false)
 		if err != nil || m.CWD != s.Checkout || !sessionPath(s.Checkout) {
 			return
 		}
@@ -535,7 +573,7 @@ func (e *Engine) handoffClaudeSessions(ctx context.Context, r *Receipt) error {
 			if err := runner(ctx, probe); err != nil {
 				return err
 			}
-			m, err := readClaudeMetadata(h.Session.Store, h.Session.ID)
+			m, err := readClaudeMetadataContext(ctx, h.Session.Store, h.Session.ID, false)
 			if err != nil || m.Binding != "" {
 				return errors.New("native Claude binding was not cleared")
 			}

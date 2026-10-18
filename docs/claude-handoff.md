@@ -18,6 +18,8 @@ A surviving parent workspace session stays in its parent. Its history is backed 
 
 Supported layouts are repo-local `.claude/worktrees/` and `.worktrees/claude-*`, including stack child clones. Linked worktrees must resolve to the primary Git checkout. Independent child clones require exactly one structurally matching primary checkout with the same origin identity. Destinations cannot be symlinks or inside the removed checkout. Target changes invalidate approval; the tool does not reset, merge, check out a branch, or restore old code over current work.
 
+Inventory scans routing metadata through each complete bounded transcript, not just its directory name or a header/tail sample. A hook-created worktree can keep its conversation in the primary project's namespace; its persisted binding still protects the actual checkout. Unknown routing schemas, incomplete inspection and uncertain relocation fail closed. Binding detection is broader than automatic handoff support: unsupported hook-worktree lifecycle cases remain blocked rather than being mistaken for unlinked checkouts.
+
 Native history stays in Claude's original storage namespace. This is **not** migration of the project picker or a silent conversation fork. Claude's documented global ID lookup and cleared binding allow the same conversation to continue from the surviving project. Use the saved route for an explicit destination:
 
 ```sh
