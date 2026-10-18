@@ -215,6 +215,11 @@ func (e *Engine) inspectSource(ctx context.Context, path string, activity Activi
 	// is deleted. Linked worktrees keep the already-validated common database;
 	// they must not be blocked just because that surviving database is filtered.
 	if c.Kind == "clone" {
+		// Deleting this database would also destroy indexes/metadata for other
+		// linked checkouts, including staged work not reachable from Git refs.
+		if entries, err := os.ReadDir(filepath.Join(common, "worktrees")); len(entries) > 0 || err != nil && !errors.Is(err, os.ErrNotExist) {
+			block(&c, "shared_git_database_has_worktrees")
+		}
 		if _, err := gitText(ctx, path, "config", "--local", "--name-only", "--get-regexp", `^(extensions\.partialclone|remote\..*\.(promisor|partialclonefilter))$`); err == nil {
 			block(&c, "partial_clone_requires_materialized_recovery")
 		}

@@ -13,6 +13,8 @@
   even when AI fails. Deduplicate nested measured footprints in summaries.
 - Reject partial/promisor Git clones before offering preservation/removal,
   rather than discovering missing historical objects during bundle creation.
+- Keep the main Git database of linked worktrees protected, including staged
+  work held in their indexes; linked-checkout cleanup leaves that database intact.
 
 ## 0.1.0
 

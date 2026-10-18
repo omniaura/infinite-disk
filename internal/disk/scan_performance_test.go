@@ -227,3 +227,37 @@ func TestFilteredLinkedWorktreeKeepsCommonHistoryAndVerifiesWorkingSource(t *tes
 		t.Fatal("remote recovery not verified")
 	}
 }
+
+func TestSharedDatabaseCannotBeRemovedWhileLinkedWorktreeHasWork(t *testing.T) {
+	f := newFixture(t)
+	linked := filepath.Join(f.root, "linked-worktree")
+	runGit(t, f.repo, "worktree", "add", "-b", "fixture-linked", linked, "main")
+	write(t, filepath.Join(linked, "source.txt"), "staged fixture version\n")
+	runGit(t, linked, "add", "source.txt")
+	write(t, filepath.Join(linked, "source.txt"), "unstaged fixture version\n")
+	p, err := f.e.RunReport(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var primary Candidate
+	for _, c := range p.Candidates {
+		if c.Path == f.repo {
+			primary = c
+		}
+	}
+	if primary.Eligible || !slices.Contains(primary.Blockers, "shared_git_database_has_worktrees") {
+		t.Fatal("shared Git database offered for deletion", primary.Blockers)
+	}
+	if _, err := f.e.Apply(context.Background(), p, primary.ID, p.ID, true); err == nil {
+		t.Fatal("shared database removed")
+	}
+	exists(t, f.repo)
+	exists(t, linked)
+	if runGit(t, linked, "show", ":source.txt") != "staged fixture version" {
+		t.Fatal("linked staged work lost")
+	}
+	b, err := os.ReadFile(filepath.Join(linked, "source.txt"))
+	if err != nil || string(b) != "unstaged fixture version\n" {
+		t.Fatal("linked working changes lost", err)
+	}
+}

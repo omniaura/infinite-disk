@@ -85,6 +85,8 @@ func blockerText(s string) string {
 		return "Shallow Git clone; full recovery needs manual review."
 	case "partial_clone_requires_materialized_recovery":
 		return "Filtered/partial Git clone; missing historical objects must be materialized and recovery verified before cleanup."
+	case "shared_git_database_has_worktrees":
+		return "This Git database owns linked worktrees; keep it so their history and staged work remain intact."
 	case "source_or_secret_check_requires_review":
 		return "Source or private-data checks need manual review."
 	case "recent_artifact_activity":
