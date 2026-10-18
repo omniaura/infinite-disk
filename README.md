@@ -102,6 +102,31 @@ usage means unknown, not free inference. Model recommendations and tool records
 are suggestions only; source/private/session checks and separate exact CLI
 approval still own every write. A plain scan without `--agent` has no AI run.
 
+### Experimental typed decisions (Jev / direct OpenRouter)
+
+`infinite-disk decide --plan PLAN --key-file /absolute/private/openrouter-key`
+is an explicit paid, report-only experiment. The key file must be owner-only
+(0600), owned by this user, and neither a symlink nor a hardlink. It does not
+change your configured Pi/GM model, background monitor, or latest approval plan.
+Use `--project ID1,ID2` for a smaller selection and `--json` for structured output.
+
+The command sends at most 20 anonymized project metadata records and typed
+Choice questions to OpenRouter's Decisions API with pinned
+`typesafe/jev-1.14`. It makes one request (30-second deadline, no retries or
+redirects, 32 KiB request and 512 KiB response limits). No source, paths, names,
+diffs, remotes, session text, tools, or approval capabilities cross that boundary.
+Reported model identity, usage/cost, probabilities and confidence are saved in
+private `decision-reports/` sidecars, not executable approval plans. Invalid
+answers fail closed; uncertain choices escalate. The experimental confidence
+thresholds are not domain-calibrated guarantees, and no confidence grants
+permission to delete. Jev generates neither explanations nor tool calls.
+
+This tests fast selection among Go-offered prerequisites against generative Pi
+triage; it does not establish superior accuracy or replace deterministic safety
+checks. Inspect the original `actions --plan PLAN` evidence and separately approve
+every CLI operation. Typed Router-profile support is tracked in
+[DITTO-1087](https://omniaura-team.atlassian.net/browse/DITTO-1087).
+
 ### Preserve ignored/private state locally
 
 ```sh
