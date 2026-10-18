@@ -172,6 +172,8 @@ Known layouts cover Claude Code, Codex, Cursor, Grok/Grok Bot, T3 Code and Emdas
 
 The default report separates **ready for approval** from **needs review** and shows the largest checkouts first. Blocked bytes are not counted as approved savings. It is a rotating project batch, **not a whole-disk inventory**; model downloads, global caches, Docker, media and app data are not included. Saved free-space measurements are labeled separately from current free space.
 
+“Ready for approval” is not a completed recovery proof. At removal time, standalone clones also undergo a bounded local Git integrity/unreachable-history check before writes and again at final/quarantine boundaries. Unreachable-only or reflog-only objects are not covered by a refs/HEAD bundle, so their presence (or an inconclusive check) retains the clone for manual preservation. No bypass is provided. Linked worktrees keep their existing shared Git database. Rolling discovery does not pay this full-object inspection cost for every project.
+
 Use `review --details` for evidence, or `review --project PROJECT_ID --details` for one project. Internal IDs and full paths stay in detail views. Terminal reports and approval prompts use your terminal's palette: cyan headings, green ready savings, amber warnings, and red permanent-removal notices. Text labels remain meaningful without color. Colors are automatic only on a terminal (stdout and stderr detected independently); pipes, `NO_COLOR=1`, and `TERM=dumb` stay plain. Use `--color always` to explicitly force colors or `--color never` to disable them; these override the automatic environment checks. `--json` never contains ANSI colors, even with `--color always`.
 
 ```sh

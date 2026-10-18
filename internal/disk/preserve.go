@@ -243,6 +243,11 @@ func (e *Engine) Apply(ctx context.Context, plan Plan, candidateID, approvedPlan
 	if (remove && !fresh.Eligible) || (!remove && !CanPreserveSource(fresh)) || fresh.Fingerprint != candidate.Fingerprint || fresh.Head != candidate.Head || fresh.RemoteDigest != candidate.RemoteDigest || fresh.CommonDir != candidate.CommonDir || fresh.Kind != candidate.Kind || !sameHandoffs(fresh.SessionHandoffs, candidate.SessionHandoffs) || !slices.Equal(fresh.PrivateArchives, candidate.PrivateArchives) {
 		return r, errors.New("project changed, became active, or no longer passes safety checks")
 	}
+	if remove {
+		if err = requireCompleteCloneHistory(ctx, fresh); err != nil {
+			return r, err
+		}
+	}
 	r = Receipt{Version: ProtocolVersion, PlanID: plan.ID, CandidateID: candidate.ID, Path: candidate.Path, ApprovedAt: e.Now().UTC(), Result: "approved", Steps: []Evidence{{"approval", "received", "Explicit per-project approval of an immutable plan"}}}
 	r.BeforeSpace, _ = DiskSpace(candidate.Path)
 	if err = AppendEvent(e.Config, Event{Type: "project_approved", PlanID: plan.ID, CandidateID: candidate.ID}); err != nil {
@@ -287,6 +292,9 @@ func (e *Engine) Apply(ctx context.Context, plan Plan, candidateID, approvedPlan
 	if !final.Eligible || final.Fingerprint != candidate.Fingerprint || !sameHandoffs(final.SessionHandoffs, candidate.SessionHandoffs) || !slices.Equal(final.PrivateArchives, candidate.PrivateArchives) {
 		return r, errors.New("final safety check changed; project retained")
 	}
+	if err = requireCompleteCloneHistory(ctx, final); err != nil {
+		return r, err
+	}
 	if err = AppendEvent(e.Config, Event{Type: "removal_started", PlanID: plan.ID, CandidateID: candidate.ID, Outcome: "preservation_verified"}); err != nil {
 		return r, err
 	}
@@ -323,7 +331,7 @@ func (e *Engine) Apply(ctx context.Context, plan Plan, candidateID, approvedPlan
 		}
 		check := e.inspectSource(ctx, destination, e.Activity(ctx))
 		archiveCheck := *candidate
-		if !check.Eligible || check.Fingerprint != candidate.Fingerprint || e.verifyPrivateArchives(ctx, &archiveCheck) != nil || !slices.Equal(archiveCheck.PrivateArchives, candidate.PrivateArchives) {
+		if !check.Eligible || check.Fingerprint != candidate.Fingerprint || requireCompleteCloneHistory(ctx, check) != nil || e.verifyPrivateArchives(ctx, &archiveCheck) != nil || !slices.Equal(archiveCheck.PrivateArchives, candidate.PrivateArchives) {
 			if os.Rename(destination, candidate.Path) == nil {
 				r.QuarantinePath = ""
 			}
