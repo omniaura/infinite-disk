@@ -283,6 +283,15 @@ For standalone clones, restore verifies the bundle checksum and checks out the r
 
 Git recovery preserves code, **not the coding conversation or its workspace binding**. Checkout scans include linked sessions and proposed surviving destinations. For supported Claude worktrees, `apply --review` now performs the session handoff automatically after per-project approval: verified private transcript/sidecar backups, reversible quarantine, native resume in the surviving project, persistent cleared-worktree verification, a second resume by normal session ID, then permanent checkout removal. It makes **zero model turns**, disables tools/MCP/hooks, and does not switch branches or merge source in the destination. A failure restores the quarantine; history backups and recovery receipts remain private. See [the Claude handoff contract](docs/claude-handoff.md).
 
+Identical Claude session inventories now share one immutable private snapshot
+within a state directory, rather than copying the same parent conversation for
+each child checkout. Reuse rechecks the live inventory and every stored byte;
+changed transcripts or sidecars create a new snapshot, and corruption blocks
+cleanup. Per-checkout receipts retain their own recovery commit and destination.
+Old receipt paths and backups remain readable and are never silently migrated,
+deleted or expired. Shared snapshots are local recovery, not off-device backup;
+their retained bytes still reduce net space recovered.
+
 Sessions in a surviving parent stack workspace are backed up and linked to source recovery, but keep their cwd; deleting one child repo must not steal the parent conversation. Unrelated supported stores no longer veto every project. Actually linked unsupported sessions, incomplete coverage, ambiguous identities, changed state and unknown private files still block removal. Old reports require a new scan. Kondo artifact-only cleanup remains separate.
 
 ```sh

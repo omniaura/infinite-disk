@@ -14,6 +14,23 @@ Tracks [#6](https://github.com/omniaura/infinite-disk/issues/6). Default scans a
 
 A surviving parent workspace session stays in its parent. Its history is backed up and linked to the child's recovery, but no native session is started or moved for it. Removing a child repo does not orphan that parent cwd.
 
+## Immutable shared history snapshots
+
+Approved operations store session bytes in `session-backups/shared-v1/<digest>/`.
+The digest binds a versioned manifest of provider, session ID, and the complete
+sorted path/size/SHA-256 inventory. An identical inventory in another checkout
+reuses that snapshot only after rereading the live inventory and every backup
+file. Files are private, owned regular files with one link; snapshots do not
+hardlink or symlink to live history. Extra/missing files, symlinks, hardlinks,
+permission changes, manifest differences, partial writes or bad hashes fail
+closed without overwriting/repairing existing recovery data.
+
+Changed transcript or sidecar bytes create another immutable snapshot. Each
+checkout's receipt still records its own recovery commit, session destination
+and handoff status; the shared byte manifest does not substitute for that
+checkout-specific proof. Legacy per-checkout backup paths remain supported.
+There is no automatic migration, pruning or garbage collection of either layout.
+
 ## Scope and limits
 
 Supported layouts are repo-local `.claude/worktrees/` and `.worktrees/claude-*`, including stack child clones. Linked worktrees must resolve to the primary Git checkout. Independent child clones require exactly one structurally matching primary checkout with the same origin identity. Destinations cannot be symlinks or inside the removed checkout. Target changes invalidate approval; the tool does not reset, merge, check out a branch, or restore old code over current work.

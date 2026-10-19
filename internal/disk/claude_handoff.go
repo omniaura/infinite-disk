@@ -413,27 +413,13 @@ func copySessionFile(from, to string, expected SessionFile) error {
 
 func (e *Engine) backupClaudeSessions(c Candidate, r *Receipt) error {
 	for _, h := range c.SessionHandoffs {
-		h.BackupDir = filepath.Join(e.Config.StateDir, "session-backups", r.PlanID+"-"+r.CandidateID, pathID(h.Session.ID))
-		if noSymlinkAncestors(filepath.Dir(h.BackupDir)) != nil {
-			return errors.New("unsafe session backup path")
-		}
-		if err := os.MkdirAll(filepath.Dir(h.BackupDir), 0700); err != nil {
+		backup, err := e.sharedClaudeSnapshot(h)
+		if err != nil {
 			return err
 		}
-		if err := os.Mkdir(h.BackupDir, 0700); err != nil {
-			return errors.New("session backup already exists; inspect recovery receipt")
-		}
-		for _, f := range h.Files {
-			if err := copySessionFile(f.Path, filepath.Join(h.BackupDir, pathID(f.Path)), f); err != nil {
-				return err
-			}
-		}
+		h.BackupDir = backup
 		h.RecoveryCommit = r.RecoveryCommit
 		h.Status = "backed_up"
-		b, _ := json.MarshalIndent(h, "", "  ")
-		if err := atomicPrivate(filepath.Join(h.BackupDir, "manifest.json"), b); err != nil {
-			return err
-		}
 		r.SessionHandoffs = append(r.SessionHandoffs, h)
 		if err := saveReceipt(e.Config, *r); err != nil {
 			return err
