@@ -3,8 +3,11 @@ package disk
 import (
 	"context"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 func orphanBlob(t *testing.T, repo string) string {
@@ -83,5 +86,56 @@ func TestCloneHistoryUnknownFailsClosedAndSharedDatabaseStays(t *testing.T) {
 	orphanBlob(t, f.repo)
 	if err := requireCompleteCloneHistory(context.Background(), Candidate{Path: f.repo, Kind: "worktree"}); err != nil {
 		t.Fatal("shared database is retained, not deleted", err)
+	}
+}
+
+func fakeHistoryGit(t *testing.T, body string) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX process fixture")
+	}
+	dir := t.TempDir()
+	// Refuse a command other than the complete history check. Nothing here
+	// reads a real checkout, invokes real Git, writes refs, or reaches a remote.
+	script := "#!/bin/sh\ncase \"$*\" in\n  *'fsck --unreachable --no-reflogs --no-progress') ;;\n  *) exit 97 ;;\nesac\n" + body + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "git"), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return dir
+}
+
+func TestCloneHistoryAllowsExpensiveFsckWithoutSkippingVerification(t *testing.T) {
+	dir := fakeHistoryGit(t, "exec sleep 21")
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	// A real-host fsck passed in 24.8 seconds but the old 20-second reader
+	// rolled the checkout back. This command must actually finish successfully.
+	if err := requireCompleteCloneHistory(ctx, Candidate{Path: dir, Kind: "clone"}); err != nil {
+		t.Fatal("completed expensive history check rejected", err)
+	}
+}
+
+func TestCloneHistoryLongRunnerStillHonorsCancellation(t *testing.T) {
+	dir := fakeHistoryGit(t, "exec sleep 30")
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	if err := requireCompleteCloneHistory(ctx, Candidate{Path: dir, Kind: "clone"}); err == nil {
+		t.Fatal("canceled verification accepted")
+	}
+	if time.Since(start) > 3*time.Second {
+		t.Fatal("caller cancellation was not honored promptly")
+	}
+}
+
+func TestCloneHistoryLongRunnerRetainsErrorsAndUnexpectedOutput(t *testing.T) {
+	for _, body := range []string{"exit 1", "printf 'unreachable blob fixture-object\\n'", "printf 'unexpected diagnostic\\n'"} {
+		t.Run(body, func(t *testing.T) {
+			dir := fakeHistoryGit(t, body)
+			if err := requireCompleteCloneHistory(context.Background(), Candidate{Path: dir, Kind: "clone"}); err == nil {
+				t.Fatal("failed or nonempty history verification accepted")
+			}
+		})
 	}
 }
