@@ -208,8 +208,16 @@ func (e *Engine) inspectSource(ctx context.Context, path string, activity Activi
 	if _, err := gitText(ctx, path, "config", "--local", "--name-only", "--get-regexp", `^(core\.sshcommand|credential\.|filter\.|include(if)?\.)`); err == nil {
 		block(&c, "repository_execution_or_credential_overrides")
 	}
-	if shallow, err := gitText(ctx, path, "rev-parse", "--is-shallow-repository"); err != nil || shallow != "false" {
+	shallow, shallowErr := gitText(ctx, path, "rev-parse", "--is-shallow-repository")
+	if shallowErr != nil || shallow != "false" && shallow != "true" || shallow == "true" && c.Kind == "clone" {
 		block(&c, "shallow_repository_requires_manual_preservation")
+	}
+	if shallowErr == nil && shallow == "true" && c.Kind == "worktree" {
+		// Removal uses Git's linked-worktree lifecycle and retains the common
+		// object database, shallow boundary and other worktrees. The approved
+		// recovery push must still succeed and pass exact remote readback; do
+		// not fetch/unshallow or pretend a shallow clone bundle is complete.
+		c.Evidence = append(c.Evidence, Evidence{"shallow_history", "retained", "Linked worktree keeps its shared Git database and shallow boundary; remote recovery remains mandatory"})
 	}
 	// Standalone clones need a self-contained bundle before their Git database
 	// is deleted. Linked worktrees keep the already-validated common database;
