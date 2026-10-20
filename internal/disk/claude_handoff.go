@@ -287,11 +287,26 @@ func (e *Engine) prepareClaudeHandoffs(ctx context.Context, c *Candidate, activi
 	if c.SessionCount == 0 || c.SessionCount != len(c.Sessions) || !activity.Known {
 		return
 	}
+	interrupted := func() bool {
+		if ctx.Err() == nil {
+			return false
+		}
+		block(c, "activity_check_unavailable")
+		return true
+	}
+	lookup, err := indexActivity(ctx, activity)
+	if err != nil || interrupted() {
+		block(c, "activity_check_unavailable")
+		return
+	}
 	// A child repo can be idle while Claude is still running in its enclosing
 	// stack workspace. Surface that activity before private archival, not only
 	// after ignored files have already been relocated for removal analysis.
 	for _, s := range c.Sessions {
-		if s.Provider == "Claude Code" && (activity.Busy(s.Store) || activity.Busy(s.Checkout)) {
+		if interrupted() {
+			return
+		}
+		if s.Provider == "Claude Code" && (lookup.Busy(s.Store) || lookup.Busy(s.Checkout)) {
 			block(c, "project_in_use")
 			c.Evidence = append(c.Evidence, Evidence{"claude_sessions", "active", "An associated Claude conversation or its working directory is in use; keep this checkout and its private files"})
 			return
@@ -312,7 +327,10 @@ func (e *Engine) prepareClaudeHandoffs(ctx context.Context, c *Candidate, activi
 	var target, identity string
 	var handoffs []ClaudeHandoff
 	for _, s := range c.Sessions {
-		if s.Provider != "Claude Code" || within(c.Path, s.Store) || activity.Busy(s.Store) || activity.Busy(s.Checkout) {
+		if interrupted() {
+			return
+		}
+		if s.Provider != "Claude Code" || within(c.Path, s.Store) || lookup.Busy(s.Store) || lookup.Busy(s.Checkout) {
 			return
 		}
 		m, err := readClaudeMetadataContext(ctx, s.Store, s.ID, false)
@@ -324,7 +342,10 @@ func (e *Engine) prepareClaudeHandoffs(ctx context.Context, c *Candidate, activi
 			return
 		}
 		for _, f := range files {
-			if within(c.Path, f.Path) || activity.Busy(f.Path) {
+			if interrupted() {
+				return
+			}
+			if within(c.Path, f.Path) || lookup.Busy(f.Path) {
 				return
 			}
 		}
@@ -370,7 +391,7 @@ func (e *Engine) prepareClaudeHandoffs(ctx context.Context, c *Candidate, activi
 		handoffs = append(handoffs, h)
 	}
 	encoded, _ := json.Marshal(handoffs)
-	if len(encoded) > 8<<20 {
+	if len(encoded) > 8<<20 || interrupted() {
 		return
 	}
 	c.SessionHandoffs = handoffs
