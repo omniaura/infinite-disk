@@ -58,7 +58,8 @@ Repeat `--root` for multiple project-parent directories. With no roots supplied,
 
 `infinite-disk media scan` inventories Downloads, Desktop and Pictures/Screenshots
 separately from project cleanup. It finds the largest files and exact byte-identical
-extra copies, without reading document contents or uploading anything. Review
+extra copies, without parsing document contents or uploading anything. Native
+duplicate hashing does read the selected local bytes within its budget. Review
 suggestions are **not deletion approvals**; there is no media deletion command.
 
 ```sh
