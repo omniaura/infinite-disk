@@ -19,6 +19,11 @@ type reportDigests struct {
 
 type reportDigest struct{ identity, sha string }
 
+// Metadata validation costs more than simply rereading a tiny sidecar. Only
+// large files enter this report-only optimization; small files keep the exact
+// existing reader without extra identity syscalls.
+const minimumReportDigestBytes = 256 << 10
+
 var errUncacheableReportIdentity = errors.New("session file identity cannot be reused")
 
 func newReportDigests(ctx context.Context) *reportDigests {

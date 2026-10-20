@@ -186,7 +186,12 @@ func claudeFilesWithDigest(s Session, digest func(string) (string, error)) ([]Se
 			if total > 512<<20 || len(files) >= 5000 {
 				return errors.New("Claude session backup budget exceeded")
 			}
-			sha, err := digest(path)
+			var sha string
+			if info.Size() < minimumReportDigestBytes {
+				sha, err = digestFile(path)
+			} else {
+				sha, err = digest(path)
+			}
 			if err != nil {
 				return err
 			}

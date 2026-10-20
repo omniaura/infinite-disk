@@ -296,7 +296,7 @@ their retained bytes still reduce net space recovered.
 
 Sessions in a surviving parent stack workspace are backed up and linked to source recovery, but keep their cwd; deleting one child repo must not steal the parent conversation. Unrelated supported stores no longer veto every project. Actually linked unsupported sessions, incomplete coverage, ambiguous identities, changed state and unknown private files still block removal. Old reports require a new scan. Kondo artifact-only cleanup remains separate.
 
-Within one report-only scan or analysis, unchanged session-file hashes may be reused across sibling repos after fresh file-identity checks (including nanosecond change time). The complete session inventory is still walked for every project, so added or removed sidecars are not hidden. This bounded in-memory optimization is discarded at the end of the report: approval, private archival, source preservation, backups and removal still use fresh uncached session reads. A report's hash is not a verified backup.
+Within one report-only scan or analysis, unchanged large session-file hashes (at least 256 KiB) may be reused across sibling repos after fresh file-identity checks (including nanosecond change time). Tiny sidecars retain the existing reader without cache-validation overhead. The complete session inventory is still walked for every project, so added or removed sidecars are not hidden. This bounded in-memory optimization is discarded at the end of the report: approval, private archival, source preservation, backups and removal still use fresh uncached session reads. A report's hash is not a verified backup.
 
 ```sh
 infinite-disk sessions list --project /absolute/checkout --details

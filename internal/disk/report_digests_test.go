@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -67,24 +68,25 @@ func TestReportDigestsReuseOnlyUnchangedIdentities(t *testing.T) {
 
 func TestReportDigestCacheIsLocalAndNeverUsedForMutationInventory(t *testing.T) {
 	_, _, s := claudeFixture(t)
+	write(t, filepath.Join(filepath.Dir(s.Store), s.ID, "subagents", "large-sidecar"), strings.Repeat("x", minimumReportDigestBytes))
 	r, reads := countedReportDigests(context.Background())
 	a, err := claudeFilesWithDigest(s, r.sum)
 	if err != nil {
 		t.Fatal(err)
 	}
 	b, err := claudeFilesWithDigest(s, r.sum)
-	if err != nil || !slices.Equal(a, b) || *reads != len(a) {
+	if err != nil || !slices.Equal(a, b) || *reads != 1 {
 		t.Fatal("report inventory mismatch or repeated payload reads", *reads, len(a), err)
 	}
 	// A new inventory member still requires a full fresh walk, even after hits.
 	extra := filepath.Join(filepath.Dir(s.Store), s.ID, "subagents", "new-sidecar")
-	write(t, extra, "new fixture sidecar")
+	write(t, extra, strings.Repeat("y", minimumReportDigestBytes))
 	b, err = claudeFilesWithDigest(s, r.sum)
-	if err != nil || len(b) != len(a)+1 || *reads != len(a)+1 {
+	if err != nil || len(b) != len(a)+1 || *reads != 2 {
 		t.Fatal("fresh inventory missed an added sidecar", *reads, err)
 	}
 	fresh, freshReads := countedReportDigests(context.Background())
-	if _, err := claudeFilesWithDigest(s, fresh.sum); err != nil || *freshReads != len(b) {
+	if _, err := claudeFilesWithDigest(s, fresh.sum); err != nil || *freshReads != 2 {
 		t.Fatal("another report reused the previous invocation", *freshReads, err)
 	}
 	// This cache never belongs to Engine. Public inspection/mutation paths use
@@ -164,14 +166,15 @@ func TestReportDigestFallbackAndBoundedMemory(t *testing.T) {
 
 func TestApplyRevalidatesSessionBytesAfterCachedReport(t *testing.T) {
 	f, _, s := claudeFixture(t)
+	sidecar := filepath.Join(filepath.Dir(s.Store), s.ID, "subagents", "large-sidecar")
+	write(t, sidecar, strings.Repeat("x", minimumReportDigestBytes))
 	p := plan(t, f)
 	eligible(t, p.Candidates[0])
-	sidecar := filepath.Join(filepath.Dir(s.Store), s.ID, "subagents", "agent-child.jsonl")
 	before, err := os.Stat(sidecar)
 	if err != nil {
 		t.Fatal(err)
 	}
-	write(t, sidecar, "CHANGED SUBAGENT\n")
+	write(t, sidecar, strings.Repeat("y", minimumReportDigestBytes))
 	if err := os.Chtimes(sidecar, before.ModTime(), before.ModTime()); err != nil {
 		t.Fatal(err)
 	}
@@ -185,26 +188,68 @@ func TestApplyRevalidatesSessionBytesAfterCachedReport(t *testing.T) {
 	}
 }
 
+func TestReportInventoryDoesNotCacheTinyFiles(t *testing.T) {
+	_, _, s := claudeFixture(t)
+	want, err := claudeFiles(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range want {
+		if f.Bytes >= minimumReportDigestBytes {
+			t.Fatal("tiny fixture precondition is false")
+		}
+	}
+	got, err := claudeFilesWithDigest(s, func(string) (string, error) {
+		t.Fatal("tiny file entered cache/identity overhead path")
+		return "", nil
+	})
+	if err != nil || !slices.Equal(got, want) {
+		t.Fatal("tiny-file inventory changed", err)
+	}
+}
+
+func TestLargeReportSidecarStillGetsFreshVerifiedRecovery(t *testing.T) {
+	f, _, s := claudeFixture(t)
+	name := filepath.Join(filepath.Dir(s.Store), s.ID, "subagents", "large-sidecar")
+	write(t, name, strings.Repeat("fixture bytes\n", minimumReportDigestBytes/7))
+	want, err := digestFile(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := plan(t, f)
+	eligible(t, p.Candidates[0])
+	r, err := f.e.Apply(context.Background(), p, p.Candidates[0].ID, p.ID, true)
+	if err != nil || r.Result != "removed" || len(r.SessionHandoffs) != 1 {
+		t.Fatal("approved fixture cleanup failed", r.Result, err)
+	}
+	saved := filepath.Join(r.SessionHandoffs[0].BackupDir, pathID(name))
+	got, err := digestFile(saved)
+	if err != nil || got != want {
+		t.Fatal("large sidecar was not freshly preserved and verified", err)
+	}
+}
+
 func BenchmarkRepeatedReportSidecarDigests(b *testing.B) {
 	root := reportTempDir(b)
-	name := filepath.Join(root, "sidecar")
-	data := make([]byte, 4<<20)
-	if err := os.WriteFile(name, data, 0600); err != nil {
-		b.Fatal(err)
-	}
-	for _, cached := range []bool{false, true} {
-		b.Run(fmt.Sprint("cached=", cached), func(b *testing.B) {
-			for n := 0; n < b.N; n++ {
-				digest := digestFile
-				if cached {
-					digest = newReportDigests(context.Background()).sum
-				}
-				for i := 0; i < 20; i++ {
-					if _, err := digest(name); err != nil {
-						b.Fatal(err)
+	for _, size := range []int{4 << 10, minimumReportDigestBytes, 4 << 20} {
+		name := filepath.Join(root, fmt.Sprint("sidecar-", size))
+		if err := os.WriteFile(name, make([]byte, size), 0600); err != nil {
+			b.Fatal(err)
+		}
+		for _, cached := range []bool{false, true} {
+			b.Run(fmt.Sprintf("bytes=%d/cached=%v", size, cached), func(b *testing.B) {
+				for n := 0; n < b.N; n++ {
+					digest := digestFile
+					if cached && size >= minimumReportDigestBytes {
+						digest = newReportDigests(context.Background()).sum
+					}
+					for i := 0; i < 20; i++ {
+						if _, err := digest(name); err != nil {
+							b.Fatal(err)
+						}
 					}
 				}
-			}
-		})
+			})
+		}
 	}
 }
