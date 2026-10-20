@@ -22,7 +22,7 @@ export function providerSettings(input) {
       cost:{input:0,output:0,cacheRead:0,cacheWrite:0},
       compat:{supportsStore:false,supportsDeveloperRole:false,supportsReasoningEffort:false,maxTokensField:"max_completion_tokens"}}]}};
 }
-export const ACTION_NAMES = Object.freeze(["preserve_source","remove_checkout","keep","verify_activity","native_session_handoff","private_backup","inspect_artifacts","resolve_blockers"]);
+export const ACTION_NAMES = Object.freeze(["preserve_source","remove_checkout","keep","verify_activity","native_session_handoff","private_backup","inspect_artifacts","resolve_blockers","review_media","review_duplicate"]);
 export function memoryCredentials() {
   const values=new Map();
   return {read:async(id)=>values.get(id),list:async()=>[...values].map(([providerId,c])=>({providerId,type:c.type})),
@@ -68,6 +68,7 @@ export function validateInventory(input) {
       const projected={source_checked:a.source_checked,ignored_complete:a.ignored_complete,ignored_count:a.ignored_count,available_suggestions:[...a.available_suggestions],ignored_example_categories:{}};
       for(const key of ["changed_files","commits_not_in_origin_tracking"]){if(a[key]!==undefined){if(!Number.isSafeInteger(a[key])||a[key]<0)throw new Error("Invalid analysis count");projected[key]=a[key];}}
       for(const key of ["private_data","dependency_candidate","build_candidate","binary_candidate","agent_state","unknown_data"]){const n=a.ignored_example_categories?.[key];if(n!==undefined){if(!Number.isSafeInteger(n)||n<0)throw new Error("Invalid category count");projected.ignored_example_categories[key]=n;}}
+      if(a.media){const m=a.media;if(!["screenshot","image","video","audio","installer","archive","document","partial_download","other"].includes(m.category)||typeof m.exact_duplicate!=="boolean"||typeof m.hash_checked!=="boolean"||typeof m.old_for_review!=="boolean")throw new Error("Invalid media metadata");projected.media={category:m.category,exact_duplicate:m.exact_duplicate,hash_checked:m.hash_checked,old_for_review:m.old_for_review};}
       clean.analysis=projected;
     }
     return clean;
@@ -123,6 +124,7 @@ export function constrainSuggestionEvidence(recommendations,steps) {
 }
 
 export async function triage(input, options = {}) {
+  if(input.domain!==undefined && !["projects","media"].includes(input.domain))throw new Error("Invalid inventory domain");
   const candidates=validateInventory(input);
   const settingsProvider=providerSettings(input);
   const apiKey=options.apiKey ?? process.env[settingsProvider.env];
@@ -134,7 +136,7 @@ export async function triage(input, options = {}) {
   try {
     const settings=SettingsManager.inMemory({compaction:{enabled:false},retry:{enabled:false},cacheWarming:"off",defaultTools:TOOL_NAMES});
     const loader=new DefaultResourceLoader({cwd:sterile,agentDir:sterile,settingsManager:settings,
-      noExtensions:true,noSkills:true,noPromptTemplates:true,noThemes:true,noContextFiles:true,systemPrompt:SYSTEM_PROMPT,
+      noExtensions:true,noSkills:true,noPromptTemplates:true,noThemes:true,noContextFiles:true,systemPrompt:SYSTEM_PROMPT+(input.domain==="media"?"\nThis inventory is local media/download FILES, not Git projects. Git/source/session checks are not applicable to this domain; do not invent repository facts. analysis.media contains only native metadata facts. You cannot see pixels, contents, filenames, paths, OCR, EXIF or private text. A screenshot category is only a filename/extension heuristic, not visual inspection. Exact duplicates have local byte-hash evidence; unique screenshots and documents may be valuable. Offer review_media/review_duplicate only when offered. These are human review suggestions, never deletion, trash, backup or upload. Age or installer type alone does not prove disposability. If value is ambiguous, propose retaining/archiving after human review, never pretend you classified contents.":""),
       agentsFilesOverride:()=>({agentsFiles:[]}),appendSystemPromptOverride:()=>[]});
     await loader.reload();
     const runtime=await ModelRuntime.create({credentials:memoryCredentials(),modelsPath:null,

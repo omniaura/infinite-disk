@@ -53,12 +53,22 @@ func (e *Engine) TriageSelected(ctx context.Context, p Plan, selected map[string
 }
 
 func (e *Engine) triage(ctx context.Context, p Plan, selected map[string]bool) (Plan, error) {
+	return e.triageInventory(ctx, p, selected, "projects", true)
+}
+func (e *Engine) triageInventory(ctx context.Context, p Plan, selected map[string]bool, domain string, persist bool) (Plan, error) {
 	if err := EnsureState(e.Config); err != nil {
 		return p, err
 	}
 	script := filepath.Join(e.Config.StateDir, "agent", "bridge.mjs")
 	if _, err := os.Stat(script); err != nil {
 		return p, errors.New("Pi worker is not installed; run agent setup")
+	}
+	if domain == "media" {
+		installed, err := readMediaPrivate(script, 2<<20)
+		embedded, embedErr := worker.Files.ReadFile("bridge.mjs")
+		if err != nil || embedErr != nil || !bytes.Equal(installed, embedded) {
+			return p, errors.New("installed Pi worker lacks this media contract; run agent setup to update it")
+		}
 	}
 	type summary struct {
 		ID           string         `json:"id"`
@@ -83,7 +93,7 @@ func (e *Engine) triage(ctx context.Context, p Plan, selected map[string]bool) (
 		var analysis *agentAnalysis
 		if c.Analysis != nil {
 			a := c.Analysis
-			analysis = &agentAnalysis{SourceChecked: a.SourceChecked, ChangedFiles: a.ChangedFiles, Commits: a.CommitsNotInOriginTracking, IgnoredCount: a.IgnoredCount, IgnoredComplete: a.IgnoredComplete, Categories: map[string]int{}, Actions: []string{}}
+			analysis = &agentAnalysis{SourceChecked: a.SourceChecked, ChangedFiles: a.ChangedFiles, Commits: a.CommitsNotInOriginTracking, IgnoredCount: a.IgnoredCount, IgnoredComplete: a.IgnoredComplete, Categories: map[string]int{}, Actions: []string{}, Media: a.Media}
 			for _, entry := range a.Ignored {
 				analysis.Categories[entry.Category]++
 			}
@@ -106,7 +116,8 @@ func (e *Engine) triage(ctx context.Context, p Plan, selected map[string]bool) (
 		Provider   string    `json:"provider,omitempty"`
 		BaseURL    string    `json:"base_url,omitempty"`
 		Candidates []summary `json:"candidates"`
-	}{1, e.Config.AgentModel, e.Config.AgentProvider, e.Config.AgentBaseURL, items})
+		Domain     string    `json:"domain,omitempty"`
+	}{1, e.Config.AgentModel, e.Config.AgentProvider, e.Config.AgentBaseURL, items, domain})
 	ctx, cancel := context.WithTimeout(ctx, 75*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "node", script)
@@ -254,6 +265,9 @@ func (e *Engine) triage(ctx context.Context, p Plan, selected map[string]bool) (
 		p.AgentSteps = append(p.AgentSteps, Evidence{"pi_response", "constrained", "Unrecorded model action suggestions were omitted; no tool evidence or approval was invented."})
 	}
 	p.AgentSteps = append(p.AgentSteps, Evidence{"pi_coverage", "checked", itoa(len(result.Recommendations)) + " projects advised from " + itoa(len(items)) + " largest metadata records; " + itoa(len(p.Candidates)) + " projects in saved report. Advice is not approval."})
+	if !persist {
+		return p, nil
+	}
 	p, err = SavePlan(e.Config, p)
 	if err != nil {
 		return p, err
@@ -271,4 +285,5 @@ type agentAnalysis struct {
 	IgnoredComplete bool           `json:"ignored_complete"`
 	Categories      map[string]int `json:"ignored_example_categories"`
 	Actions         []string       `json:"available_suggestions"`
+	Media           *MediaFacts    `json:"media,omitempty"`
 }

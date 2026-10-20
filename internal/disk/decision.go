@@ -37,6 +37,7 @@ type DecisionReport struct {
 	ID           string           `json:"id"`
 	SourcePlan   string           `json:"source_plan"`
 	Mode         string           `json:"mode"`
+	InputKind    string           `json:"input_kind,omitempty"`
 	Model        string           `json:"requested_model"`
 	ServedModel  string           `json:"served_model"`
 	StartedAt    time.Time        `json:"started_at"`
@@ -50,16 +51,17 @@ type DecisionReport struct {
 	Executed     bool             `json:"executed"`
 }
 type decisionProject struct {
-	ID              string   `json:"id"`
-	AgeDays         int      `json:"age_days"`
-	Bytes           uint64   `json:"size_bytes"`
-	SizeComplete    bool     `json:"size_complete"`
-	Eligible        bool     `json:"eligible"`
-	SourceChecked   bool     `json:"source_checked"`
-	ChangedFiles    int      `json:"changed_files"`
-	SessionsChecked bool     `json:"sessions_checked"`
-	Blockers        []string `json:"blockers"`
-	Commits         *int     `json:"commits_absent_local_origin_tracking,omitempty"`
+	ID              string      `json:"id"`
+	AgeDays         int         `json:"age_days"`
+	Bytes           uint64      `json:"size_bytes"`
+	SizeComplete    bool        `json:"size_complete"`
+	Eligible        bool        `json:"eligible"`
+	SourceChecked   bool        `json:"source_checked"`
+	ChangedFiles    int         `json:"changed_files"`
+	SessionsChecked bool        `json:"sessions_checked"`
+	Blockers        []string    `json:"blockers"`
+	Commits         *int        `json:"commits_absent_local_origin_tracking,omitempty"`
+	Media           *MediaFacts `json:"media,omitempty"`
 }
 type decisionQuestion struct {
 	Type         string            `json:"type"`
@@ -98,7 +100,7 @@ func makeDecisionRequest(p Plan, selected map[string]bool, now time.Time) (decis
 		if !c.LastModified.IsZero() {
 			age = max(0, int(now.Sub(c.LastModified).Hours()/24))
 		}
-		item := decisionProject{c.ID, age, c.SizeBytes, c.SizeComplete, c.Eligible, c.Fingerprint != "", c.DirtyFiles, c.SessionsChecked, c.Blockers, nil}
+		item := decisionProject{c.ID, age, c.SizeBytes, c.SizeComplete, c.Eligible, c.Fingerprint != "", c.DirtyFiles, c.SessionsChecked, c.Blockers, nil, nil}
 		if c.Analysis != nil {
 			item.Commits = c.Analysis.CommitsNotInOriginTracking
 		}
@@ -180,9 +182,16 @@ func (e *Engine) decide(ctx context.Context, p Plan, selected map[string]bool, k
 	if err != nil {
 		return out, err
 	}
+	return e.executeDecisionRequest(ctx, input, p.ID, keyFile, client)
+}
+func (e *Engine) executeDecisionRequest(ctx context.Context, input decisionRequest, sourceID, keyFile string, client *http.Client) (DecisionReport, error) {
 	b, _ := json.Marshal(input)
-	if len(b) > 32768 {
-		return out, errors.New("decision metadata exceeds 32 KiB; select fewer projects")
+	return e.executeDecisionPayload(ctx, input, sourceID, keyFile, client, b, 32768, "metadata")
+}
+func (e *Engine) executeDecisionPayload(ctx context.Context, input decisionRequest, sourceID, keyFile string, client *http.Client, b []byte, limit int, inputKind string) (DecisionReport, error) {
+	out := DecisionReport{}
+	if len(b) > limit {
+		return out, errors.New("decision request exceeds its native byte budget; narrow the selection")
 	}
 	key, err := readDecisionKey(keyFile)
 	if err != nil {
@@ -233,7 +242,7 @@ func (e *Engine) decide(ctx context.Context, p Plan, selected map[string]bool, k
 	if reply.Usage.Cost != nil && (!finite(*reply.Usage.Cost) || *reply.Usage.Cost < 0 || *reply.Usage.Cost > 1) {
 		return out, errors.New("invalid decision cost evidence")
 	}
-	out = DecisionReport{Version: 1, SourcePlan: p.ID, Mode: "suggestions-only", Model: decisionModel, ServedModel: reply.Model, StartedAt: started, DurationMS: time.Since(started).Milliseconds(), Requests: 1, InputTokens: *reply.Usage.Input, OutputTokens: *reply.Usage.Output, CostUSD: reply.Usage.Cost}
+	out = DecisionReport{Version: 1, SourcePlan: sourceID, Mode: "suggestions-only", InputKind: inputKind, Model: decisionModel, ServedModel: reply.Model, StartedAt: started, DurationMS: time.Since(started).Milliseconds(), Requests: 1, InputTokens: *reply.Usage.Input, OutputTokens: *reply.Usage.Output, CostUSD: reply.Usage.Cost}
 	for _, item := range input.State {
 		q := input.Questions["project_"+item.ID]
 		a, ok := reply.Answers["project_"+item.ID]

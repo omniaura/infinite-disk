@@ -54,6 +54,27 @@ Repeat `--root` for multiple project-parent directories. With no roots supplied,
 
 ## Read a report
 
+### Screenshots, Downloads and Google Drive archives
+
+`infinite-disk media scan` inventories Downloads, Desktop and Pictures/Screenshots
+separately from project cleanup. It finds the largest files and exact byte-identical
+extra copies, without reading document contents or uploading anything. Review
+suggestions are **not deletion approvals**; there is no media deletion command.
+
+```sh
+infinite-disk media scan --root "$HOME/Downloads"
+infinite-disk media review --details
+infinite-disk media triage --plan MEDIA_PLAN --json
+infinite-disk media drive discover
+```
+
+Metadata-only Pi uses the configured Ditto/OpenRouter profile. Explicit Jev
+metadata and opt-in single-PNG visual decisions are also available. Drive archival
+requires an exact selected-file plan, a verified account and destination, explicit
+upload approval, and independent download/SHA256 verification; originals stay.
+See [the media workflow and privacy contract](docs/media.md) before enabling
+paid inference, sending screenshot pixels, or approving an archive upload.
+
 ### Rolling scan, triage, review, repeat
 
 ```sh
