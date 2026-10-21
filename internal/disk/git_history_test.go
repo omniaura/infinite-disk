@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"testing"
 	"time"
 )
@@ -19,7 +18,7 @@ func orphanBlob(t *testing.T, repo string) string {
 	return oid
 }
 
-func TestCloneRemovalRetainsUnreachableHistoryBeforeWrites(t *testing.T) {
+func TestCloneRemovalPreservesUnreachableHistoryPrivately(t *testing.T) {
 	for _, kind := range []string{"blob", "commit"} {
 		t.Run(kind, func(t *testing.T) {
 			f := newFixture(t)
@@ -38,16 +37,23 @@ func TestCloneRemovalRetainsUnreachableHistoryBeforeWrites(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			localRefs := runGit(t, f.repo, "show-ref")
-			remoteRefs := runGit(t, f.remote, "show-ref")
-			_, err := f.e.Apply(context.Background(), p, p.Candidates[0].ID, p.ID, true)
-			if err == nil || !strings.Contains(err.Error(), "unreachable-only Git history") {
-				t.Fatal("unreachable work was not retained", err)
+			r, err := f.e.Apply(context.Background(), p, p.Candidates[0].ID, p.ID, true)
+			if err != nil || r.Result != "removed" || r.GitHistory == nil || r.GitHistory.PrivateRefs != 1 {
+				t.Fatal("unreachable work was not privately preserved", r, err)
 			}
-			exists(t, f.repo)
-			runGit(t, f.repo, "cat-file", "-e", oid)
-			if localRefs != runGit(t, f.repo, "show-ref") || remoteRefs != runGit(t, f.remote, "show-ref") {
-				t.Fatal("history rejection must happen before recovery writes")
+			if _, err := os.Stat(f.repo); !os.IsNotExist(err) {
+				t.Fatal("verified clone not removed")
+			}
+			if _, err := gitText(context.Background(), f.remote, "cat-file", "-e", oid); err == nil {
+				t.Fatal("private unreachable history was pushed to origin")
+			}
+			destination := filepath.Join(f.root, "restored")
+			if err := f.e.Restore(context.Background(), p.ID, p.Candidates[0].ID, destination); err != nil {
+				t.Fatal(err)
+			}
+			runGit(t, destination, "cat-file", "-e", oid)
+			if got := runGit(t, destination, "rev-parse", privateHistoryRefs+oid); got != oid {
+				t.Fatal("private recovery ref not restored")
 			}
 		})
 	}
