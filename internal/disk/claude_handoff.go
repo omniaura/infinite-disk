@@ -213,11 +213,23 @@ func nativeClaudeIdentity(ctx context.Context) (string, string, error) {
 	cmd := exec.CommandContext(ctx, bin, "--version")
 	out := &cappedBuffer{limit: 4096}
 	cmd.Stdout = out
-	if cmd.Run() != nil || out.overflow || strings.TrimSpace(out.String()) != "2.1.302 (Claude Code)" {
-		return "", "", errors.New("automatic handoff currently requires tested Claude Code 2.1.302")
+	if cmd.Run() != nil || out.overflow || !testedClaudeVersion(strings.TrimSpace(out.String())) {
+		return "", "", errors.New("automatic handoff requires tested Claude Code 2.1.302 or 2.1.305")
 	}
 	b, _ := json.Marshal([]any{bin, info.Size(), info.ModTime().UnixNano(), strings.TrimSpace(out.String())})
 	return bin, PlanDigest(b), nil
+}
+
+// Keep this an exact allowlist. Each additional native version requires the
+// explicit offline cleanup/restore/resume fixture; patch-version similarity is
+// not evidence that session routing and zero-inference behavior are unchanged.
+func testedClaudeVersion(version string) bool {
+	switch version {
+	case "2.1.302 (Claude Code)", "2.1.305 (Claude Code)":
+		return true
+	default:
+		return false
+	}
 }
 
 func claudeWorkspacePrefix(path string) (string, bool) {

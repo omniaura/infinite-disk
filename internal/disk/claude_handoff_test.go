@@ -14,6 +14,11 @@ import (
 
 func claudeFixture(t *testing.T) (fixture, string, Session) {
 	t.Helper()
+	return claudeFixtureVersion(t, "2.1.302")
+}
+
+func claudeFixtureVersion(t *testing.T, version string) (fixture, string, Session) {
+	t.Helper()
 	f := newFixture(t)
 	primary := f.repo
 	checkout := filepath.Join(primary, ".claude", "worktrees", "stale-task")
@@ -28,8 +33,8 @@ func claudeFixture(t *testing.T) (fixture, string, Session) {
 	id := "442a48e7-4026-456b-a375-ed965e8b634f"
 	store := filepath.Join(home, ".claude", "projects", claudeProjectKey(checkout), id+".jsonl")
 	rows := []any{
-		map[string]any{"type": "user", "uuid": "d357f905-554f-4324-bd4c-ce470435b899", "parentUuid": nil, "isSidechain": false, "cwd": checkout, "sessionId": id, "version": "2.1.302", "message": map[string]any{"role": "user", "content": "Disposable Infinite Disk fixture. Do not execute tools."}},
-		map[string]any{"type": "assistant", "uuid": "f2638238-2339-41ec-81bc-eb60cb951ae2", "parentUuid": "d357f905-554f-4324-bd4c-ce470435b899", "isSidechain": false, "cwd": checkout, "sessionId": id, "version": "2.1.302", "message": map[string]any{"id": "msg_fixture", "type": "message", "role": "assistant", "model": "claude-sonnet-4-6", "content": []any{map[string]any{"type": "text", "text": "Fixture acknowledged."}}, "stop_reason": "end_turn", "usage": map[string]int{"input_tokens": 1, "output_tokens": 1}}},
+		map[string]any{"type": "user", "uuid": "d357f905-554f-4324-bd4c-ce470435b899", "parentUuid": nil, "isSidechain": false, "cwd": checkout, "sessionId": id, "version": version, "message": map[string]any{"role": "user", "content": "Disposable Infinite Disk fixture. Do not execute tools."}},
+		map[string]any{"type": "assistant", "uuid": "f2638238-2339-41ec-81bc-eb60cb951ae2", "parentUuid": "d357f905-554f-4324-bd4c-ce470435b899", "isSidechain": false, "cwd": checkout, "sessionId": id, "version": version, "message": map[string]any{"id": "msg_fixture", "type": "message", "role": "assistant", "model": "claude-sonnet-4-6", "content": []any{map[string]any{"type": "text", "text": "Fixture acknowledged."}}, "stop_reason": "end_turn", "usage": map[string]int{"input_tokens": 1, "output_tokens": 1}}},
 		map[string]any{"type": "worktree-state", "sessionId": id, "worktreeSession": map[string]any{"worktreePath": checkout, "originalCwd": primary, "branch": "stale-task", "name": "stale-task"}},
 	}
 	var data strings.Builder
@@ -65,6 +70,19 @@ func appendClaudeClear(h ClaudeHandoff) error {
 	b, _ := json.Marshal(map[string]any{"type": "worktree-state", "sessionId": h.Session.ID, "worktreeSession": nil})
 	_, err = f.Write(append(b, '\n'))
 	return err
+}
+
+func TestClaudeNativeVersionAllowlistIsExact(t *testing.T) {
+	for _, version := range []string{"2.1.302 (Claude Code)", "2.1.305 (Claude Code)"} {
+		if !testedClaudeVersion(version) {
+			t.Fatalf("tested native version rejected: %q", version)
+		}
+	}
+	for _, version := range []string{"", "2.1.301 (Claude Code)", "2.1.303 (Claude Code)", "2.1.304 (Claude Code)", "2.1.306 (Claude Code)", "2.2.0 (Claude Code)", "2.1.305", "2.1.305 (Claude Code) unexpected", "2.1.305 (Claude Code)\n2.1.302 (Claude Code)"} {
+		if testedClaudeVersion(version) {
+			t.Fatalf("untested native version accepted: %q", version)
+		}
+	}
 }
 
 func TestClaudeApprovedCleanupPreservesSessionsAndUnfinishedWork(t *testing.T) {
@@ -226,7 +244,16 @@ func TestNativeClaudeOfflineCleanup(t *testing.T) {
 	if os.Getenv("INFINITE_DISK_NATIVE_CLAUDE_TEST") != "1" {
 		t.Skip("explicit installed-native fixture smoke only")
 	}
-	f, primary, s := claudeFixture(t)
+	for _, version := range []string{"2.1.302", "2.1.305"} {
+		t.Run("session_"+version, func(t *testing.T) {
+			testNativeClaudeOfflineCleanup(t, version)
+		})
+	}
+}
+
+func testNativeClaudeOfflineCleanup(t *testing.T, version string) {
+	t.Helper()
+	f, primary, s := claudeFixtureVersion(t, version)
 	f.e.claudeRunner = nil
 	marker := filepath.Join(filepath.Dir(f.root), "hook-must-not-run")
 	settings := map[string]any{"hooks": map[string]any{"SessionStart": []any{map[string]any{"hooks": []any{map[string]any{"type": "command", "command": "touch " + marker}}}}}}
