@@ -24,6 +24,30 @@ func (e *Engine) CacheConfig() Config {
 	return c
 }
 
+// Cache removal leaves the managed checkout and its sessions in place. Codex's
+// native archive lifecycle is still mandatory for removing the checkout itself.
+// Only the Kondo directory path uses this narrower project validation; binary
+// artifacts and checkout operations continue to use safeTarget.
+func (e *Engine) safeCacheProject(path string) error {
+	home, _ := os.UserHomeDir()
+	managed := filepath.Join(home, ".codex", "worktrees")
+	if !within(managed, path) {
+		return e.safeTarget(path)
+	}
+	clean := filepath.Clean(path)
+	canonical, err := filepath.EvalSymlinks(clean)
+	if err != nil || !filepath.IsAbs(path) || path != clean || clean != canonical || clean == managed || within(e.Config.StateDir, clean) {
+		return errors.New("unsafe managed cache project")
+	}
+	for _, root := range e.Config.Roots {
+		r, err := filepath.EvalSymlinks(root)
+		if err == nil && clean != r && within(r, clean) {
+			return nil
+		}
+	}
+	return errors.New("cache project is outside configured roots or equals a root")
+}
+
 var kondoHeader = regexp.MustCompile(`^(/.+?) (Node \(React Native\)|Godot 4\.x|\S+) project(?: \(.*\))?\s*$`)
 var kondoArtifact = regexp.MustCompile(`^  └─ (.+) \([0-9.]+(?:B|KiB|MiB|GiB|TiB|PiB|EiB)\)$`)
 
@@ -136,7 +160,7 @@ func (e *Engine) inspectCache(ctx context.Context, c Candidate, activity Activit
 		block(&c, "invalid_artifact_scope")
 		return c
 	}
-	if err := e.safeTarget(c.CommonDir); err != nil {
+	if err := e.safeCacheProject(c.CommonDir); err != nil {
 		block(&c, err.Error())
 		return measureCandidate(ctx, c)
 	}

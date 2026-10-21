@@ -503,7 +503,7 @@ func (e *Engine) PlanBinaryArtifact(ctx context.Context, project, relative, disp
 		if disposition != "discard" {
 			return Plan{}, errors.New("Kondo directory selection requires explicit discard disposition; keep is the default")
 		}
-		if e.safeTarget(project) != nil || noSymlinkAncestors(path) != nil {
+		if e.safeCacheProject(project) != nil || noSymlinkAncestors(path) != nil {
 			return Plan{}, errors.New("unsafe artifact selection")
 		}
 		catalogCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
