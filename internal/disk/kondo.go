@@ -106,7 +106,9 @@ func (e *Engine) CacheScan(ctx context.Context) (Plan, error) {
 	defer release()
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
-	args := []string{"--dry-run", "--same-filesystem", "--older", fmt.Sprintf("%dd", e.Config.IdleDays), "--"}
+	// Discover recent dependency installs too. The independent native policy
+	// applies age checks to other artifacts; discovery never authorizes removal.
+	args := []string{"--dry-run", "--same-filesystem", "--older", "0d", "--"}
 	p := Plan{Version: ProtocolVersion, CreatedAt: e.Now().UTC(), Mode: "report-only", ConfigDigest: ConfigDigest(e.CacheConfig()), Candidates: []Candidate{}, Warnings: []string{}}
 	for _, root := range minimalRoots(e.Config.Roots) {
 		if _, err := os.Stat(root); errors.Is(err, os.ErrNotExist) {
@@ -156,6 +158,7 @@ func (e *Engine) inspectCache(ctx context.Context, c Candidate, activity Activit
 	c.Eligible = true
 	c.Blockers = []string{}
 	c.SizeComplete = false
+	c.ArtifactPolicy = ""
 	if c.Kind != "kondo-cache" || !within(c.CommonDir, c.Path) || c.CommonDir == c.Path {
 		block(&c, "invalid_artifact_scope")
 		return c
@@ -202,6 +205,10 @@ func (e *Engine) inspectCache(ctx context.Context, c Candidate, activity Activit
 		return measureCandidate(ctx, c)
 	}
 	h := sha256.New()
+	if inputs, ok := nodeDependencyInputs(ctx, c.CommonDir, filepath.ToSlash(relative)); ok {
+		c.ArtifactPolicy = disposableNodeModules
+		fmt.Fprintf(h, "dependency inputs %s\n", inputs)
+	}
 	projectInfo, projectErr := os.Stat(c.CommonDir)
 	if projectErr != nil {
 		block(&c, "artifact_filesystem_unknown")
@@ -226,14 +233,11 @@ func (e *Engine) inspectCache(ctx context.Context, c Candidate, activity Activit
 			inspectionBlocker = "artifact_contains_nested_repository"
 			return errors.New("artifact contains repository")
 		}
-		for _, part := range strings.Split(filepath.ToSlash(rel), "/") {
-			switch part {
-			case ".claude", ".codex", ".cursor", ".opencode", ".pi", ".t3", ".grok", ".emdash":
-				inspectionBlocker = "artifact_vendor_fixture_or_session_path"
-				return errors.New("artifact contains possible coding-session state")
-			}
+		if possibleCodingSession(rel, c.ArtifactPolicy == disposableNodeModules) {
+			inspectionBlocker = "artifact_vendor_fixture_or_session_path"
+			return errors.New("artifact contains possible coding-session state")
 		}
-		if sensitiveName.MatchString(filepath.ToSlash(rel)) {
+		if c.ArtifactPolicy != disposableNodeModules && sensitiveName.MatchString(filepath.ToSlash(rel)) {
 			inspectionBlocker = "artifact_contains_private_names"
 			return errors.New("artifact contains private state")
 		}
@@ -249,8 +253,7 @@ func (e *Engine) inspectCache(ctx context.Context, c Candidate, activity Activit
 			// hash their target and require the resolved destination to stay
 			// inside this exact artifact. Escapes/broken chains still block.
 			link, linkErr := os.Readlink(path)
-			resolved, resolveErr := filepath.EvalSymlinks(path)
-			if linkErr != nil || resolveErr != nil || !within(c.Path, resolved) || resolved == c.Path {
+			if linkErr != nil || !artifactLinkInside(c.Path, path, link, c.ArtifactPolicy == disposableNodeModules) {
 				inspectionBlocker = "artifact_symlink_outside_scope"
 				return errors.New("artifact symlink scope unknown or outside artifact")
 			}
@@ -296,7 +299,7 @@ func (e *Engine) inspectCache(ctx context.Context, c Candidate, activity Activit
 		}
 	}
 	c.LastModified = newest
-	if newest.IsZero() || e.Now().Sub(newest) < time.Duration(e.Config.IdleDays)*24*time.Hour {
+	if c.ArtifactPolicy != disposableNodeModules && (newest.IsZero() || e.Now().Sub(newest) < time.Duration(e.Config.IdleDays)*24*time.Hour) {
 		block(&c, "recent_artifact_activity")
 	}
 	c.Fingerprint = hex.EncodeToString(h.Sum(nil))
