@@ -46,6 +46,11 @@ func old(t *testing.T, path string) {
 }
 func newFixture(t *testing.T) fixture {
 	t.Helper()
+	return newFixtureFormat(t, "sha1")
+}
+
+func newFixtureFormat(t *testing.T, format string) fixture {
+	t.Helper()
 	base, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -54,8 +59,8 @@ func newFixture(t *testing.T) fixture {
 	if err := os.MkdirAll(f.repo, 0700); err != nil {
 		t.Fatal(err)
 	}
-	runGit(t, base, "init", "--bare", f.remote)
-	runGit(t, f.repo, "init", "-b", "main")
+	runGit(t, base, "init", "--bare", "--object-format="+format, f.remote)
+	runGit(t, f.repo, "init", "--object-format="+format, "-b", "main")
 	runGit(t, f.repo, "config", "user.name", "Infinite Disk Test")
 	runGit(t, f.repo, "config", "user.email", "fixtures@example.invalid")
 	write(t, filepath.Join(f.repo, "source.txt"), "original source\n")

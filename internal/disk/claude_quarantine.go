@@ -136,7 +136,7 @@ func (e *Engine) removeWithClaudeHandoff(ctx context.Context, c Candidate, r *Re
 	if c.Kind == "worktree" {
 		_, err = gitInput(ctx, e.Config.StateDir, nil, nil, "--git-dir", c.CommonDir, "worktree", "remove", "--force", destination)
 	} else {
-		if err = requireCompleteCloneHistory(ctx, Candidate{Path: destination, Kind: "clone"}); err != nil {
+		if err = e.verifyCloneRecovery(ctx, Candidate{Path: destination, Kind: "clone"}, r); err != nil {
 			return err
 		}
 		err = os.RemoveAll(destination)

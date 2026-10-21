@@ -110,23 +110,24 @@ type Recommendation struct {
 }
 
 type Receipt struct {
-	Version             int             `json:"version"`
-	PlanID              string          `json:"plan_id"`
-	CandidateID         string          `json:"candidate_id"`
-	Path                string          `json:"path"`
-	ApprovedAt          time.Time       `json:"approved_at"`
-	Result              string          `json:"result"`
-	RecoveryRef         string          `json:"recovery_ref,omitempty"`
-	RecoveryCommit      string          `json:"recovery_commit,omitempty"`
-	RemoteURL           string          `json:"remote_url,omitempty"`
-	QuarantinePath      string          `json:"quarantine_path,omitempty"`
-	BundlePath          string          `json:"bundle_path,omitempty"`
-	BundleSHA256        string          `json:"bundle_sha256,omitempty"`
-	BeforeSpace         Space           `json:"before_space"`
-	AfterSpace          Space           `json:"after_space"`
-	Steps               []Evidence      `json:"steps"`
-	SessionHandoffs     []ClaudeHandoff `json:"session_handoffs,omitempty"`
-	ArtifactArchivePath string          `json:"artifact_archive_path,omitempty"`
-	ArtifactSHA256      string          `json:"artifact_sha256,omitempty"`
-	RetainedBytes       uint64          `json:"retained_bytes,omitempty"`
+	Version             int              `json:"version"`
+	PlanID              string           `json:"plan_id"`
+	CandidateID         string           `json:"candidate_id"`
+	Path                string           `json:"path"`
+	ApprovedAt          time.Time        `json:"approved_at"`
+	Result              string           `json:"result"`
+	RecoveryRef         string           `json:"recovery_ref,omitempty"`
+	RecoveryCommit      string           `json:"recovery_commit,omitempty"`
+	RemoteURL           string           `json:"remote_url,omitempty"`
+	QuarantinePath      string           `json:"quarantine_path,omitempty"`
+	BundlePath          string           `json:"bundle_path,omitempty"`
+	BundleSHA256        string           `json:"bundle_sha256,omitempty"`
+	GitHistory          *GitHistoryProof `json:"git_history,omitempty"`
+	BeforeSpace         Space            `json:"before_space"`
+	AfterSpace          Space            `json:"after_space"`
+	Steps               []Evidence       `json:"steps"`
+	SessionHandoffs     []ClaudeHandoff  `json:"session_handoffs,omitempty"`
+	ArtifactArchivePath string           `json:"artifact_archive_path,omitempty"`
+	ArtifactSHA256      string           `json:"artifact_sha256,omitempty"`
+	RetainedBytes       uint64           `json:"retained_bytes,omitempty"`
 }

@@ -32,7 +32,7 @@ func gitInput(ctx context.Context, dir string, env []string, input []byte, args 
 	return strings.TrimSpace(b.String()), nil
 }
 
-func (e *Engine) preserve(ctx context.Context, c Candidate, planID string, r *Receipt) error {
+func (e *Engine) preserve(ctx context.Context, c Candidate, planID string, r *Receipt, unreachable []string) error {
 	remote, err := gitText(ctx, c.Path, "remote", "get-url", "origin")
 	if err != nil {
 		return err
@@ -47,6 +47,9 @@ func (e *Engine) preserve(ctx context.Context, c Candidate, planID string, r *Re
 	}
 	_, changed, _, _, err := fingerprint(ctx, c.Path)
 	if err != nil {
+		return err
+	}
+	if err = e.retainCloneObjects(ctx, c, unreachable, r); err != nil {
 		return err
 	}
 	indexFile, err := os.CreateTemp(e.Config.StateDir, "index-*")
@@ -119,7 +122,7 @@ func (e *Engine) preserve(ctx context.Context, c Candidate, planID string, r *Re
 	if err = saveReceipt(e.Config, *r); err != nil {
 		return err
 	}
-	if _, err = gitInput(ctx, c.Path, nil, nil, "push", "--no-verify", "--", remote, commit+":"+ref); err != nil {
+	if _, err = gitInput(ctx, c.Path, nil, nil, "-c", "push.negotiate=false", "push", "--no-verify", "--no-follow-tags", "--", remote, commit+":"+ref); err != nil {
 		return err
 	}
 	r.Steps = append(r.Steps, Evidence{"recovery_push", "completed", "Remote write completed; exact readback verification follows"})
@@ -153,10 +156,18 @@ func (e *Engine) preserve(ctx context.Context, c Candidate, planID string, r *Re
 		if _, err = os.Lstat(bundle); err == nil {
 			return errors.New("recovery bundle already exists; inspect prior receipt")
 		}
+		r.GitHistory, err = cloneHistoryInventory(ctx, c.Path)
+		if err != nil {
+			return err
+		}
 		if _, err = gitInput(ctx, c.Path, nil, nil, "bundle", "create", bundle, "--all", "HEAD"); err != nil {
 			return err
 		}
 		if err = os.Chmod(bundle, 0600); err != nil {
+			return err
+		}
+		createdSHA, err := digestFile(bundle)
+		if err != nil {
 			return err
 		}
 		r.BundlePath = bundle
@@ -169,7 +180,7 @@ func (e *Engine) preserve(ctx context.Context, c Candidate, planID string, r *Re
 			return err
 		}
 		defer os.RemoveAll(verify)
-		if _, err = gitCommand(ctx, e.Config.StateDir, nil, "init", "--bare", verify); err != nil {
+		if _, err = gitCommand(ctx, e.Config.StateDir, nil, "init", "--bare", "--object-format="+r.GitHistory.ObjectFormat, verify); err != nil {
 			return err
 		}
 		if _, err = gitInput(ctx, verify, nil, nil, "bundle", "verify", bundle); err != nil {
@@ -187,13 +198,17 @@ func (e *Engine) preserve(ctx context.Context, c Candidate, planID string, r *Re
 		if verifyErr != nil || verifiedCommit != commit {
 			return errors.New("bundle recovery commit verification failed")
 		}
-		sha, err := digestFile(bundle)
-		if err != nil {
+		if err = verifyCloneHistoryCoverage(ctx, Candidate{Path: verify, Kind: "clone"}, r.GitHistory); err != nil {
 			return err
+		}
+		sha, err := digestFile(bundle)
+		if err != nil || sha != createdSHA {
+			return errors.New("recovery bundle changed during independent verification; checkout retained")
 		}
 		r.BundlePath = bundle
 		r.BundleSHA256 = sha
 		r.Steps = append(r.Steps, Evidence{"git_bundle", "verified", "All Git refs preserved in a private independently verified bundle"})
+		r.Steps = append(r.Steps, Evidence{"complete_git_history", "verified", "Independent offline restore matches every stored Git object and ref, including locally retained unreachable history"})
 	}
 	return nil
 }
@@ -243,10 +258,9 @@ func (e *Engine) Apply(ctx context.Context, plan Plan, candidateID, approvedPlan
 	if (remove && !fresh.Eligible) || (!remove && !CanPreserveSource(fresh)) || fresh.Fingerprint != candidate.Fingerprint || fresh.Head != candidate.Head || fresh.RemoteDigest != candidate.RemoteDigest || fresh.CommonDir != candidate.CommonDir || fresh.Kind != candidate.Kind || !sameHandoffs(fresh.SessionHandoffs, candidate.SessionHandoffs) || !slices.Equal(fresh.PrivateArchives, candidate.PrivateArchives) {
 		return r, errors.New("project changed, became active, or no longer passes safety checks")
 	}
-	if remove {
-		if err = requireCompleteCloneHistory(ctx, fresh); err != nil {
-			return r, err
-		}
+	unreachable, err := cloneUnreachableObjects(ctx, fresh)
+	if err != nil {
+		return r, err
 	}
 	r = Receipt{Version: ProtocolVersion, PlanID: plan.ID, CandidateID: candidate.ID, Path: candidate.Path, ApprovedAt: e.Now().UTC(), Result: "approved", Steps: []Evidence{{"approval", "received", "Explicit per-project approval of an immutable plan"}}}
 	r.BeforeSpace, _ = DiskSpace(candidate.Path)
@@ -262,7 +276,7 @@ func (e *Engine) Apply(ctx context.Context, plan Plan, candidateID, approvedPlan
 		}
 		_ = AppendEvent(e.Config, Event{Type: "project_operation_finished", PlanID: plan.ID, CandidateID: candidate.ID, Outcome: r.Result})
 	}()
-	if err = e.preserve(ctx, fresh, plan.ID, &r); err != nil {
+	if err = e.preserve(ctx, fresh, plan.ID, &r, unreachable); err != nil {
 		return r, err
 	}
 	fp, _, _, _, err := fingerprint(ctx, candidate.Path)
@@ -292,7 +306,7 @@ func (e *Engine) Apply(ctx context.Context, plan Plan, candidateID, approvedPlan
 	if !final.Eligible || final.Fingerprint != candidate.Fingerprint || !sameHandoffs(final.SessionHandoffs, candidate.SessionHandoffs) || !slices.Equal(final.PrivateArchives, candidate.PrivateArchives) {
 		return r, errors.New("final safety check changed; project retained")
 	}
-	if err = requireCompleteCloneHistory(ctx, final); err != nil {
+	if err = e.verifyCloneRecovery(ctx, final, &r); err != nil {
 		return r, err
 	}
 	if err = AppendEvent(e.Config, Event{Type: "removal_started", PlanID: plan.ID, CandidateID: candidate.ID, Outcome: "preservation_verified"}); err != nil {
@@ -331,7 +345,7 @@ func (e *Engine) Apply(ctx context.Context, plan Plan, candidateID, approvedPlan
 		}
 		check := e.inspectSource(ctx, destination, e.Activity(ctx))
 		archiveCheck := *candidate
-		if !check.Eligible || check.Fingerprint != candidate.Fingerprint || requireCompleteCloneHistory(ctx, check) != nil || e.verifyPrivateArchives(ctx, &archiveCheck) != nil || !slices.Equal(archiveCheck.PrivateArchives, candidate.PrivateArchives) {
+		if !check.Eligible || check.Fingerprint != candidate.Fingerprint || e.verifyCloneRecovery(ctx, check, &r) != nil || e.verifyPrivateArchives(ctx, &archiveCheck) != nil || !slices.Equal(archiveCheck.PrivateArchives, candidate.PrivateArchives) {
 			if os.Rename(destination, candidate.Path) == nil {
 				r.QuarantinePath = ""
 			}
