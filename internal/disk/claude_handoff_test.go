@@ -73,13 +73,14 @@ func appendClaudeClear(h ClaudeHandoff) error {
 }
 
 func TestClaudeNativeVersionAllowlistIsExact(t *testing.T) {
+	manifest := []byte(`{"schema":1,"adapter":"claude-local-handoff-v1","series":"2.1","versions":["2.1.302","2.1.305"]}`)
 	for _, version := range []string{"2.1.302 (Claude Code)", "2.1.305 (Claude Code)"} {
-		if !testedClaudeVersion(version) {
+		if !testedClaudeManifest(manifest, version) {
 			t.Fatalf("tested native version rejected: %q", version)
 		}
 	}
 	for _, version := range []string{"", "2.1.301 (Claude Code)", "2.1.303 (Claude Code)", "2.1.304 (Claude Code)", "2.1.306 (Claude Code)", "2.2.0 (Claude Code)", "2.1.305", "2.1.305 (Claude Code) unexpected", "2.1.305 (Claude Code)\n2.1.302 (Claude Code)"} {
-		if testedClaudeVersion(version) {
+		if testedClaudeManifest(manifest, version) {
 			t.Fatalf("untested native version accepted: %q", version)
 		}
 	}
@@ -244,7 +245,16 @@ func TestNativeClaudeOfflineCleanup(t *testing.T) {
 	if os.Getenv("INFINITE_DISK_NATIVE_CLAUDE_TEST") != "1" {
 		t.Skip("explicit installed-native fixture smoke only")
 	}
-	for _, version := range []string{"2.1.302", "2.1.305"} {
+	versions := []string{"2.1.302", "2.1.305"}
+	if version := os.Getenv("INFINITE_DISK_NATIVE_CLAUDE_SESSION_VERSION"); version != "" {
+		if !claudeCompatVersion.MatchString(version) {
+			t.Fatal("invalid native fixture session version")
+		}
+		if !slices.Contains(versions, version) {
+			versions = append(versions, version)
+		}
+	}
+	for _, version := range versions {
 		t.Run("session_"+version, func(t *testing.T) {
 			testNativeClaudeOfflineCleanup(t, version)
 		})

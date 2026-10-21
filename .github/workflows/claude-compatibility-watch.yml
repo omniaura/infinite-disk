@@ -1,0 +1,75 @@
+name: Claude compatibility watch
+on:
+  schedule:
+    - cron: '19 6 * * *'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact 2.1.x version; empty discovers official latest
+        type: string
+        default: ''
+permissions:
+  contents: read
+concurrency:
+  group: claude-compatibility-watch
+  cancel-in-progress: false
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    outputs:
+      version: ${{ steps.discover.outputs.version }}
+      needed: ${{ steps.discover.outputs.needed }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+      - id: discover
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: node scripts/claude-compat.mjs discover "$REQUESTED_VERSION"
+  probe:
+    needs: discover
+    if: needs.discover.outputs.needed == 'true'
+    uses: ./.github/workflows/claude-native.yml
+    with:
+      candidate_version: ${{ needs.discover.outputs.version }}
+  propose:
+    needs: [discover, probe]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+      - name: Propose manifest-only bump and explicitly dispatch required CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_VERSION: ${{ needs.discover.outputs.version }}
+        run: |
+          node scripts/claude-compat.mjs add-version "$CANDIDATE_VERSION"
+          compat_branch="automation/claude-compat-$CANDIDATE_VERSION"
+          if [ -n "$(gh pr list --head "$compat_branch" --state all --json number --jq '.[].number')" ]; then
+            echo 'A compatibility PR already exists; no duplicate or overwrite.'
+            exit 0
+          fi
+          test "$(git diff --name-only)" = internal/disk/claude_compatibility.json
+          git switch -c "$compat_branch"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add internal/disk/claude_compatibility.json
+          git commit -m "fix: verify Claude $CANDIDATE_VERSION session compatibility"
+          git push origin "HEAD:refs/heads/$compat_branch"
+          node scripts/claude-compat.mjs pr-body "$CANDIDATE_VERSION" "$RUNNER_TEMP/compat-pr.md"
+          gh pr create --base main --head "$compat_branch" --title "fix: verify Claude $CANDIDATE_VERSION session compatibility" --body-file "$RUNNER_TEMP/compat-pr.md"
+          gh workflow run ci.yml --ref "$compat_branch"

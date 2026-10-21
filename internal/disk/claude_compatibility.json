@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "adapter": "claude-local-handoff-v1",
+  "series": "2.1",
+  "versions": ["2.1.302", "2.1.305"]
+}

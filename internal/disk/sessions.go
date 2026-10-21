@@ -367,7 +367,12 @@ func (e *Engine) SessionInventory(ctx context.Context) SessionInventory {
 		}
 		if _, _, err := nativeClaudeIdentity(ctx); err != nil {
 			result.Complete = false
-			result.Warnings = append(result.Warnings, "Claude routing metadata requires the tested native version; checkout removal is blocked")
+			var compatibility *untestedClaudeVersion
+			if errors.As(err, &compatibility) {
+				result.Warnings = append(result.Warnings, compatibility.Error())
+			} else {
+				result.Warnings = append(result.Warnings, "Claude routing metadata version check is unavailable; checkout removal is blocked")
+			}
 		}
 		break
 	}
