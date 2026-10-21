@@ -233,12 +233,9 @@ func (e *Engine) inspectCache(ctx context.Context, c Candidate, activity Activit
 			inspectionBlocker = "artifact_contains_nested_repository"
 			return errors.New("artifact contains repository")
 		}
-		for _, part := range strings.Split(filepath.ToSlash(rel), "/") {
-			switch part {
-			case ".claude", ".codex", ".cursor", ".opencode", ".pi", ".t3", ".grok", ".emdash":
-				inspectionBlocker = "artifact_vendor_fixture_or_session_path"
-				return errors.New("artifact contains possible coding-session state")
-			}
+		if possibleCodingSession(rel, c.ArtifactPolicy == disposableNodeModules) {
+			inspectionBlocker = "artifact_vendor_fixture_or_session_path"
+			return errors.New("artifact contains possible coding-session state")
 		}
 		if c.ArtifactPolicy != disposableNodeModules && sensitiveName.MatchString(filepath.ToSlash(rel)) {
 			inspectionBlocker = "artifact_contains_private_names"

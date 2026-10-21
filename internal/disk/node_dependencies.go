@@ -17,6 +17,37 @@ import (
 
 const disposableNodeModules = "discard_node_modules"
 
+func possibleCodingSession(relative string, disposable bool) bool {
+	parts := strings.Split(filepath.ToSlash(relative), "/")
+	for i, part := range parts {
+		switch strings.ToLower(part) {
+		case ".claude", ".codex", ".cursor", ".opencode", ".pi", ".t3", ".grok", ".emdash":
+			if !disposable {
+				return true
+			}
+			// Packages can ship author settings/skills. Those are installed
+			// dependency contents, not proof of a native conversation store.
+			// Retain runtime transcript/database/checkpoint layouts instead.
+			for _, name := range parts[i+1:] {
+				name = strings.ToLower(name)
+				switch name {
+				case "sessions", "session", "projects", "checkpoints", "tasks", "subagents", "conversations", "history", "storage", "workspacestorage":
+					return true
+				}
+				for _, suffix := range []string{".jsonl", ".sqlite", ".sqlite-wal", ".sqlite-shm", ".db", ".db-wal", ".db-shm", ".vscdb"} {
+					if strings.HasSuffix(name, suffix) {
+						return true
+					}
+				}
+				if strings.HasPrefix(name, "session.") || strings.HasPrefix(name, "history.") {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 func nodeDependencyPath(relative string) bool {
 	for _, part := range strings.Split(filepath.ToSlash(relative), "/") {
 		if part == "node_modules" {

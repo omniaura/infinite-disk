@@ -18,6 +18,8 @@ func disposableNodeFixture(t *testing.T) (fixture, Candidate) {
 	runGit(t, f.repo, "commit", "-m", "fixture reinstall inputs")
 	write(t, filepath.Join(c.Path, "package/credential.d.ts"), "public library declaration")
 	write(t, filepath.Join(c.Path, "package/.env.example"), "fixture configuration example")
+	write(t, filepath.Join(c.Path, "package/.claude/settings.local.json"), `{"fixture":true}`)
+	write(t, filepath.Join(c.Path, "package/.claude/skills/fixture/SKILL.md"), "package author fixture")
 	return f, c
 }
 
@@ -122,6 +124,19 @@ func TestDisposableNodeModulesDanglingInternalLinks(t *testing.T) {
 	}
 	if got := f.e.inspectCache(context.Background(), c, Activity{Known: true}); got.Eligible {
 		t.Fatal("escaping link accepted")
+	}
+}
+
+func TestDependencyAuthorSettingsAreNotSessionStores(t *testing.T) {
+	for _, name := range []string{"node_modules/pkg/.claude/settings.local.json", "node_modules/pkg/.codex/config.toml", "node_modules/pkg/.claude/skills/fixture/SKILL.md"} {
+		if possibleCodingSession(name, true) || !possibleCodingSession(name, false) {
+			t.Fatal("incorrect package settings classification", name)
+		}
+	}
+	for _, name := range []string{"node_modules/pkg/.claude/session.jsonl", "node_modules/.codex/state_5.sqlite", "node_modules/pkg/.cursor/workspaceStorage/id/state.vscdb", "node_modules/pkg/.opencode/storage/session/id.json", "node_modules/pkg/.grok/history.json"} {
+		if !possibleCodingSession(name, true) {
+			t.Fatal("native session store not retained", name)
+		}
 	}
 }
 
