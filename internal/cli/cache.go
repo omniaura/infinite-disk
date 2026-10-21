@@ -124,6 +124,9 @@ func cacheCommand(load func() (*disk.Engine, error), asJSON *bool) *cobra.Comman
 					fmt.Fprint(styled(cmd.ErrOrStderr(), tonePrompt), "Approve this exact choice? [y/N] (q quits, Ctrl+C cancels) ")
 				} else {
 					wrapped(styled(cmd.ErrOrStderr(), toneHeading), "  ", fmt.Sprintf("Remove %s of regenerable artifacts: %s", size(c.SizeBytes), c.Path))
+					if c.ArtifactPolicy == "discard_node_modules" {
+						fmt.Fprintln(cmd.ErrOrStderr(), "Disposable node_modules: delete without a backup, including installed package fixtures. Tracked reinstall inputs stay.")
+					}
 					fmt.Fprintln(cmd.ErrOrStderr(), "Source and checkout stay. No commits or uploads. Reinstall/rebuild later.")
 					fmt.Fprint(styled(cmd.ErrOrStderr(), tonePrompt), "Delete this artifact directory? [y/N] (q quits, Ctrl+C cancels) ")
 				}
@@ -212,6 +215,9 @@ func renderCaches(w io.Writer, p disk.Plan) {
 		}
 		fmt.Fprintf(styled(w, color), "\n  %9s  %-6s  %s\n", size(c.SizeBytes), status, plain(c.Name))
 		wrapped(w, "    ", c.Path)
+		if c.ArtifactPolicy == "discard_node_modules" {
+			wrapped(w, "    ", "Disposable dependencies — no backup. Install age is informational; live-use and preservation boundaries still checked.")
+		}
 		if c.Kind == "binary-artifact" {
 			wrapped(w, "    ", "Likely rebuildable binary — planned choice: "+c.ArtifactDisposition+". Requires exact approval; source and sessions stay.")
 			if c.ArtifactDisposition == "archive" {

@@ -214,6 +214,14 @@ func (e *Engine) privateEntries(ctx context.Context, c Candidate) ([]PrivateEntr
 			return errors.New("private inventory incomplete")
 		}
 		full := filepath.Join(c.Path, relative)
+		if nodeDependencyPath(relative) {
+			for _, session := range c.Sessions {
+				if within(full, session.Store) {
+					return errors.New("dependency path contains native session storage; keep checkout")
+				}
+			}
+			return nil
+		}
 		s, err := os.Lstat(full)
 		if err != nil {
 			return err
@@ -262,6 +270,9 @@ func (e *Engine) privateEntries(ctx context.Context, c Candidate) ([]PrivateEntr
 			}
 		}
 		full := filepath.Join(c.Path, relative)
+		if err := rejectDependencyArchive(ctx, full, relative); err != nil {
+			return nil, err
+		}
 		for _, s := range c.Sessions {
 			if within(full, s.Store) {
 				return nil, errors.New("private data contains native session storage")

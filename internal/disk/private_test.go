@@ -35,7 +35,7 @@ func TestPrivateArchivePlanApplyRestoreAndSourceRecovery(t *testing.T) {
 	before := runGit(t, f.repo, "status", "--porcelain")
 	refs := runGit(t, f.repo, "show-ref")
 	index, _ := digestFile(filepath.Join(f.repo, ".git/index"))
-	if len(a.Entries) != 3 {
+	if len(a.Entries) != 2 {
 		t.Fatalf("unexpected roots: %+v", a.Entries)
 	}
 	exists(t, filepath.Join(f.repo, ".env"))

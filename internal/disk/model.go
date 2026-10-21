@@ -56,6 +56,7 @@ type Candidate struct {
 	PrivateArchives     []string         `json:"private_archives,omitempty"`
 	ArtifactDisposition string           `json:"artifact_disposition,omitempty"`
 	ArtifactMode        uint32           `json:"artifact_mode,omitempty"`
+	ArtifactPolicy      string           `json:"artifact_policy,omitempty"`
 }
 
 type Space struct {
