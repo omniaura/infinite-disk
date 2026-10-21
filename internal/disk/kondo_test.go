@@ -101,6 +101,122 @@ func TestCacheApprovalRemovesOnlyArtifact(t *testing.T) {
 	}
 }
 
+func codexCacheFixture(t *testing.T) (fixture, Candidate) {
+	t.Helper()
+	f, c := cacheFixture(t)
+	home := filepath.Join(filepath.Dir(f.root), "home")
+	managed := filepath.Join(home, ".codex", "worktrees")
+	repo := filepath.Join(managed, "fixture", "stack", "workspaces", "task", "app")
+	if err := os.MkdirAll(filepath.Dir(repo), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(f.repo, repo); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	f.repo = repo
+	f.root = managed
+	f.e.Config.Roots = []string{managed}
+	c.Path = filepath.Join(repo, "node_modules")
+	c.CommonDir = repo
+	c.ID = pathID(c.Path)
+	return f, c
+}
+
+func TestCodexCacheApprovalRetainsCheckoutAndPrivateState(t *testing.T) {
+	f, c := codexCacheFixture(t)
+	write(t, filepath.Join(f.repo, ".env"), "fixture private configuration")
+	write(t, filepath.Join(f.repo, "patches", "package.patch"), "fixture patch")
+	write(t, filepath.Join(f.root, "fixture", ".codex", "session.jsonl"), "fixture session")
+	head := runGit(t, f.repo, "rev-parse", "HEAD")
+	c = f.e.inspectCache(context.Background(), c, Activity{Known: true})
+	eligible(t, c)
+	p, err := SavePlan(f.e.CacheConfig(), Plan{Version: 1, CreatedAt: f.e.Now(), ConfigDigest: ConfigDigest(f.e.CacheConfig()), Candidates: []Candidate{c}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.e.ApplyCache(context.Background(), p, c.ID, ""); err == nil {
+		t.Fatal("cache accepted without exact approval")
+	}
+	if _, err = f.e.ApplyCache(context.Background(), p, c.ID, p.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = os.Lstat(c.Path); !os.IsNotExist(err) {
+		t.Fatal("approved cache still exists", err)
+	}
+	for _, path := range []string{".git", "source.txt", ".env", "patches/package.patch"} {
+		exists(t, filepath.Join(f.repo, path))
+	}
+	exists(t, filepath.Join(f.root, "fixture", ".codex", "session.jsonl"))
+	if runGit(t, f.repo, "rev-parse", "HEAD") != head || f.e.safeTarget(f.repo) == nil {
+		t.Fatal("checkout changed or managed checkout removal became permitted")
+	}
+}
+
+func TestCodexCacheProjectScopeStillFailsClosed(t *testing.T) {
+	for _, mode := range []string{"unknown activity", "active", "private", "tracked", "recent", "outside roots", "root itself", "symlink"} {
+		t.Run(mode, func(t *testing.T) {
+			f, c := codexCacheFixture(t)
+			activity := Activity{Known: true}
+			switch mode {
+			case "unknown activity":
+				activity = Activity{}
+			case "active":
+				activity.Paths = []string{c.Path}
+			case "private":
+				write(t, filepath.Join(c.Path, ".env"), "fixture")
+			case "tracked":
+				runGit(t, f.repo, "add", "-f", "node_modules/package/index.js")
+			case "recent":
+				write(t, filepath.Join(c.Path, "fresh.js"), "fixture")
+			case "outside roots":
+				f.e.Config.Roots = []string{filepath.Dir(f.root) + "-other"}
+			case "root itself":
+				f.e.Config.Roots = []string{f.repo}
+			case "symlink":
+				alias := f.repo + "-alias"
+				if err := os.Symlink(f.repo, alias); err != nil {
+					t.Fatal(err)
+				}
+				c.CommonDir = alias
+				c.Path = filepath.Join(alias, "node_modules")
+			}
+			if got := f.e.inspectCache(context.Background(), c, activity); got.Eligible {
+				t.Fatal("unsafe managed cache accepted", mode)
+			}
+			exists(t, filepath.Join(f.repo, "node_modules"))
+		})
+	}
+}
+
+func TestCodexCachePlanUsesKondoButBinaryAndCheckoutStayBlocked(t *testing.T) {
+	f, c := codexCacheFixture(t)
+	bin := t.TempDir()
+	write(t, filepath.Join(bin, "kondo"), "#!/bin/sh\nprintf '%s Node project\\n  └─ node_modules (1.0MiB)\\nProjects cleaned: 0/1, Bytes deleted: 0.0B / 1.0MiB\\n' \"$INFINITE_DISK_FIXTURE_PROJECT\"\n")
+	if err := os.Chmod(filepath.Join(bin, "kondo"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(filepath.ListSeparator)+os.Getenv("PATH"))
+	t.Setenv("INFINITE_DISK_FIXTURE_PROJECT", f.repo)
+	p, err := f.e.PlanBinaryArtifact(context.Background(), f.repo, "node_modules", "discard")
+	if err != nil || len(p.Candidates) != 1 {
+		t.Fatal("managed cache plan failed", err)
+	}
+	eligible(t, p.Candidates[0])
+	if p.Candidates[0].Path != c.Path || p.Candidates[0].Kind != "kondo-cache" {
+		t.Fatal("unexpected managed cache scope")
+	}
+	binaryPlan, err := f.e.PlanBinaryArtifact(context.Background(), f.repo, "source.txt", "discard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(binaryPlan.Candidates) != 1 || binaryPlan.Candidates[0].Eligible || f.e.safeTarget(f.repo) == nil {
+		t.Fatal("native checkout lifecycle guard bypassed")
+	}
+	exists(t, filepath.Join(f.repo, "source.txt"))
+	exists(t, c.Path)
+}
+
 func TestCacheMonorepoComponentAndRootActivity(t *testing.T) {
 	f, c := cacheFixture(t)
 	component := filepath.Join(f.repo, "component")
