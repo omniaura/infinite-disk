@@ -1,0 +1,57 @@
+name: Release verified Claude compatibility
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+permissions:
+  contents: read
+concurrency:
+  group: compatibility-patch-release
+  cancel-in-progress: false
+jobs:
+  release:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+      - name: Verify this is still the exact checked main commit
+        env:
+          CHECKED_HEAD: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$CHECKED_HEAD"
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$CHECKED_HEAD"
+      - id: plan
+        name: Require an additive manifest-only compatibility change
+        run: node scripts/claude-compat.mjs release-plan
+      - name: Publish a patch through the normal checksummed release workflow
+        if: steps.plan.outputs.eligible == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.plan.outputs.tag }}
+        run: |
+          if gh release view "$RELEASE_TAG" --json tagName > /dev/null 2>&1; then
+            echo 'This compatibility release is already published.'
+            exit 0
+          fi
+          if git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
+            test "$(git rev-list -n 1 "$RELEASE_TAG")" = "$(git rev-parse HEAD)"
+          else
+            git tag "$RELEASE_TAG" HEAD
+          fi
+          git push origin "refs/tags/$RELEASE_TAG"
+          gh workflow run release.yml --ref main -f "tag=$RELEASE_TAG"

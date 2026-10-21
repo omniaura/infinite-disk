@@ -59,6 +59,45 @@ Recovery restores checkout placement only. It never rolls back a conversation, d
 
 ## Verification
 
+### Keeping up with Claude updates
+
+The release embeds `internal/disk/claude_compatibility.json`: an exact version
+allowlist for the reviewed adapter contract. Scanning never downloads a remote
+allowlist or silently trusts a matching major/minor version. An unknown version
+keeps checkouts and sessions and tells you to update Infinite Disk or request
+compatibility CI. New native series and schema drift require adapter review.
+
+The daily **Claude compatibility watch** discovers Anthropic's official latest
+native version. Before proposing a manifest-only PR, it verifies the pinned
+Anthropic release-signing key fingerprint, detached manifest signature, binary
+SHA-256 and exact native version, then runs the offline native fixture on macOS
+and Linux. Only read permission is available to those native-test jobs. A
+separate job may open the PR after both pass; it never approves or merges PRs.
+Required CI repeats the native contract on the candidate branch. The workflow
+explicitly dispatches CI because GitHub-token-authored PR runs can require
+approval instead of starting automatically.
+
+After a protected manifest-only merge and successful main CI, the compatibility
+release workflow verifies that no tested versions were removed and publishes
+the next patch through the normal checksummed release pipeline. It does not
+change branch protection, force-push, release arbitrary code changes, replace a
+user's installed binary, or authorize project cleanup. Duplicate watch runs do
+not overwrite existing PRs; release retries reuse a tag on the same commit.
+
+Maintainers can request an immediate candidate test instead of waiting daily:
+
+```sh
+gh workflow run claude-compatibility-watch.yml --repo omniaura/infinite-disk -f version=2.1.306
+```
+
+The repository must allow Actions-created PRs for automatic proposal creation.
+If that policy is disabled, tests still fail closed and an administrator must
+authorize that repository setting or create the proposed PR manually. No token
+is copied from a developer's machine and no bot approval permission is used.
+
+References: [Anthropic signed native releases](https://code.claude.com/docs/en/setup#binary-integrity-and-code-signing),
+[GitHub token-triggered workflow behavior](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow).
+
 Ordinary fixture tests cover actual approved removal, remote source readback, byte-exact backups, preserved primary branch/index, native failures, uncleared bindings, changed source/private state/sidecars/target, duplicate IDs, symlinks, cancellation rollback and crash-quarantine recovery. The opt-in installed-native smoke uses only disposable conversations, an isolated config and a loopback dummy endpoint:
 
 ```sh
