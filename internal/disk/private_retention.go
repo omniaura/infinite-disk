@@ -114,6 +114,14 @@ var legacyPythonDirectory = regexp.MustCompile(`^python[0-9]+\.[0-9]+$`)
 // the contents of a previously removed file were harmless.
 func legacyInstalledPackageEntry(relative string) bool {
 	parts := strings.Split(filepath.ToSlash(relative), "/")
+	if !sensitiveName.MatchString(parts[len(parts)-1]) {
+		return false
+	}
+	for _, ancestor := range parts[:len(parts)-1] {
+		if sensitiveName.MatchString(ancestor) {
+			return false
+		}
+	}
 	for _, part := range parts {
 		switch strings.ToLower(part) {
 		case ".git", ".agents", ".claude", ".codex", ".cursor", ".pi", ".opencode", ".t3", ".grok", ".emdash", "vendor", "third_party", "third-party", "fixtures", "testdata":
@@ -121,11 +129,6 @@ func legacyInstalledPackageEntry(relative string) bool {
 		}
 	}
 	for i, part := range parts {
-		for _, ancestor := range parts[:i] {
-			if sensitiveName.MatchString(ancestor) {
-				return false
-			}
-		}
 		pkg := -1
 		if part == "node_modules" && i+1 < len(parts) {
 			pkg = i + 1

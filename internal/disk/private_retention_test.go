@@ -150,7 +150,7 @@ func TestLegacyInstalledPackageDiscardCompatibility(t *testing.T) {
 			exists(t, filepath.Join(f.repo, "local-data/work.txt"))
 		})
 	}
-	for _, name := range []string{".venv/.env", "node_modules/.env", "dist/.env", ".venv/lib/python3.11/site-packages/.env", ".env/project/node_modules/pkg/credentials.py", ".claude/node_modules/pkg/credentials.py", "node_modules/@scope/.env", "node_modules/pkg/.claude/sessions/session.jsonl"} {
+	for _, name := range []string{".venv/.env", "node_modules/.env", "dist/.env", ".venv/lib/python3.11/site-packages/.env", ".env/project/node_modules/pkg/credentials.py", ".claude/node_modules/pkg/credentials.py", "node_modules/@scope/.env", "node_modules/pkg/.claude/sessions/session.jsonl", ".venv/lib/python3.11/site-packages/pkg/credentials.py/child", "node_modules/pkg/credentials/data.key", "node_modules/pkg/ordinary-file.js"} {
 		if legacyInstalledPackageEntry(name) {
 			t.Fatalf("private/session path qualified for legacy exception: %s", name)
 		}
