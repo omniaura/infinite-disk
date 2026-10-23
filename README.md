@@ -86,6 +86,11 @@ Interrupted discards may leave remnants: these block recovery until separately
 inspected, rather than silently suppressing files still present in the archive.
 Receipts never authorize deleting other entries and are not authentication
 against someone who can rewrite the same owner's private state.
+Completed legacy receipts may name sensitive-looking installed package files
+under `node_modules/<package>/...` or `.venv/lib/pythonX.Y/site-packages/<package>/...`.
+Their absent payloads do not block restoring other unique data. This narrow
+receipt-only compatibility does not approve new deletions, weaken content
+inspection, or retroactively prove the removed files' contents were harmless.
 Older binaries do not understand discard receipts; use this version for a
 pruned archive's private restore. Config changes do not grant source cleanup:
 state-local retention validates the immutable archive independently of later

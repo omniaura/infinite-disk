@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 )
@@ -95,12 +96,53 @@ func discardedPrivate(p PrivatePlan, r PrivateArchive) (map[string]bool, error) 
 		allowed := discard.Policy == "reviewed_regenerable" && regenerableBoundary(discard.Entry.Path)
 		allowed = allowed || discard.Policy == "verified_xgo_gen_only" && filepath.Base(discard.Entry.Path) == ".xgo"
 		allowed = allowed || discard.Policy == "reviewed_compiled_only" && !binaryArtifactReserved(discard.Entry.Path) && !sensitiveName.MatchString(filepath.ToSlash(discard.Entry.Path))
-		if !match || !allowed || sensitiveName.MatchString(filepath.ToSlash(discard.Entry.Path)) || possibleCodingSession(discard.Entry.Path, nodeDependencyPath(discard.Entry.Path)) || out[discard.Entry.Path] {
+		legacyPackage := discard.Policy == "reviewed_regenerable" && legacyInstalledPackageEntry(discard.Entry.Path)
+		if !match || !allowed || sensitiveName.MatchString(filepath.ToSlash(discard.Entry.Path)) && !legacyPackage || possibleCodingSession(discard.Entry.Path, nodeDependencyPath(discard.Entry.Path)) || out[discard.Entry.Path] {
 			return nil, errors.New("invalid private discard receipt")
 		}
 		out[discard.Entry.Path] = true
 	}
 	return out, nil
+}
+
+var legacyPackageComponent = regexp.MustCompile(`^[a-zA-Z0-9_][a-zA-Z0-9_.-]*$`)
+var legacyPythonDirectory = regexp.MustCompile(`^python[0-9]+\.[0-9]+$`)
+
+// Older archives selected installed package files such as credentials.py and
+// cacert.pem by name. Accept their completed discard receipts only; callers
+// must still validate absence. This never approves a new deletion or proves
+// the contents of a previously removed file were harmless.
+func legacyInstalledPackageEntry(relative string) bool {
+	parts := strings.Split(filepath.ToSlash(relative), "/")
+	for _, part := range parts {
+		switch strings.ToLower(part) {
+		case ".git", ".agents", ".claude", ".codex", ".cursor", ".pi", ".opencode", ".t3", ".grok", ".emdash", "vendor", "third_party", "third-party", "fixtures", "testdata":
+			return false
+		}
+	}
+	for i, part := range parts {
+		for _, ancestor := range parts[:i] {
+			if sensitiveName.MatchString(ancestor) {
+				return false
+			}
+		}
+		pkg := -1
+		if part == "node_modules" && i+1 < len(parts) {
+			pkg = i + 1
+			if strings.HasPrefix(parts[pkg], "@") {
+				if !legacyPackageComponent.MatchString(strings.TrimPrefix(parts[pkg], "@")) {
+					continue
+				}
+				pkg++
+			}
+		} else if part == ".venv" && i+4 < len(parts) && parts[i+1] == "lib" && legacyPythonDirectory.MatchString(parts[i+2]) && parts[i+3] == "site-packages" {
+			pkg = i + 4
+		}
+		if pkg >= 0 && pkg+1 < len(parts) && legacyPackageComponent.MatchString(parts[pkg]) && !sensitiveName.MatchString(parts[pkg]) {
+			return true
+		}
+	}
+	return false
 }
 
 // Receipts describe completed removal, not permission to suppress a payload

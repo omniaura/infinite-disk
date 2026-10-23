@@ -119,6 +119,44 @@ func TestPrivatePruneRetainsEmbeddedSecrets(t *testing.T) {
 	}
 }
 
+func TestLegacyInstalledPackageDiscardCompatibility(t *testing.T) {
+	for _, name := range []string{"node_modules/bottleneck/.env", "node_modules/@scope/auth/credentials.py", "node_modules/.bun/auth@1/node_modules/@scope/auth/credentials.py", ".venv/lib/python3.11/site-packages/botocore/cacert.pem"} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			write(t, filepath.Join(f.repo, name), "fixture installed dependency")
+			write(t, filepath.Join(f.repo, "local-data/work.txt"), "fixture unique work")
+			f, a := legacyRetentionArchive(t, f, []string{name, "local-data"})
+			ctx := context.Background()
+			if _, err := f.e.PlanPrivatePrune(ctx, a.ID, []string{name}); err == nil {
+				t.Fatal("legacy compatibility approved a new sensitive-name deletion")
+			}
+			r, err := f.e.PrivateReceipt(a.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r.Discarded = []PrivateDiscard{{Entry: a.Entries[0], Policy: "reviewed_regenerable"}}
+			if err := f.e.saveArchive(r); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.e.RestorePrivate(ctx, a.ID, a.ID); err == nil {
+				t.Fatal("legacy receipt suppressed a remaining package payload")
+			}
+			if err := os.RemoveAll(filepath.Join(f.e.privateDir(a.ID), "payload", name)); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.e.RestorePrivate(ctx, a.ID, a.ID); err != nil {
+				t.Fatal("completed legacy dependency discard blocked unique work restore", err)
+			}
+			exists(t, filepath.Join(f.repo, "local-data/work.txt"))
+		})
+	}
+	for _, name := range []string{".venv/.env", "node_modules/.env", "dist/.env", ".venv/lib/python3.11/site-packages/.env", ".env/project/node_modules/pkg/credentials.py", ".claude/node_modules/pkg/credentials.py", "node_modules/@scope/.env", "node_modules/pkg/.claude/sessions/session.jsonl"} {
+		if legacyInstalledPackageEntry(name) {
+			t.Fatalf("private/session path qualified for legacy exception: %s", name)
+		}
+	}
+}
+
 func TestPrivatePruneCompiledOnlyRequiresWholeEntryAndExactApproval(t *testing.T) {
 	f, a := legacyRetentionFixture(t, true)
 	ctx := context.Background()
