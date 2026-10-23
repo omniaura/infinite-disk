@@ -45,9 +45,12 @@ func testedClaudeManifest(raw []byte, output string) bool {
 	return found
 }
 
-type untestedClaudeVersion struct{ version string }
+type untestedClaudeVersion struct{ version, reason string }
 
 func (e *untestedClaudeVersion) Error() string {
+	if e.reason != "" {
+		return "Claude Code " + e.version + " is not on the reviewed list and failed Infinite Disk's local handoff self-test (" + e.reason + "). Checkouts and sessions are retained"
+	}
 	return "Claude Code " + e.version + " is not yet verified for session handoff; update Infinite Disk or request Claude compatibility CI. Checkouts and sessions are retained"
 }
 

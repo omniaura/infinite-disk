@@ -321,7 +321,7 @@ Initial provider coverage is deliberately limited:
 
 | Provider | Session metadata | Reopening / cleanup behavior |
 | --- | --- | --- |
-| Claude Code | Transcript identity/cwd/worktree metadata, encoded namespaces including long paths, external subagents/checkpoints/tasks | Automatic approved cleanup for tested Claude Code **2.1.302 and 2.1.305**, with native handoff and verified private backup; other versions/cases stay blocked. Manual orphan launch requires 2.1.302+ in the 2.1 series. |
+| Claude Code | Transcript identity/cwd/worktree metadata, encoded namespaces including long paths, external subagents/checkpoints/tasks | Automatic approved cleanup for Claude Code builds that pass the native handoff contract (reviewed versions, or any newer build that passes the built-in behavioral self-test), with verified private backup; failing builds and other cases stay blocked. Manual orphan launch requires 2.1.302+. |
 | Codex | Read-only `state_5.sqlite` identity/path fields | Orphan routes for CLI-source sessions only, after verifying `resume --cd` support. Desktop/app-owned sessions require native handoff/restore. |
 | Grok | Native URL-encoded cwd/session namespace | Linked sessions detected; native reattachment adapter pending. |
 | Cursor | Flat/nested project transcripts; CLI hashed cwd namespaces and bounded descendant-directory matching | Unrelated stores do not block Claude; linked Cursor sessions still need native handoff. CLI namespace adapter is gated to tested 2026.05.28-a70ca7c. |
