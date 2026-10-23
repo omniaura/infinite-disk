@@ -95,7 +95,7 @@ func discardedPrivate(p PrivatePlan, r PrivateArchive) (map[string]bool, error) 
 		allowed := discard.Policy == "reviewed_regenerable" && regenerableBoundary(discard.Entry.Path)
 		allowed = allowed || discard.Policy == "verified_xgo_gen_only" && filepath.Base(discard.Entry.Path) == ".xgo"
 		allowed = allowed || discard.Policy == "reviewed_compiled_only" && !binaryArtifactReserved(discard.Entry.Path) && !sensitiveName.MatchString(filepath.ToSlash(discard.Entry.Path))
-		if !match || !allowed || possibleCodingSession(discard.Entry.Path, nodeDependencyPath(discard.Entry.Path)) || out[discard.Entry.Path] {
+		if !match || !allowed || sensitiveName.MatchString(filepath.ToSlash(discard.Entry.Path)) || possibleCodingSession(discard.Entry.Path, nodeDependencyPath(discard.Entry.Path)) || out[discard.Entry.Path] {
 			return nil, errors.New("invalid private discard receipt")
 		}
 		out[discard.Entry.Path] = true
@@ -184,6 +184,7 @@ func (e *Engine) planPrivatePrune(ctx context.Context, id string, paths []string
 				return out, errors.New("entry is not a recognized regenerable boundary or reviewed compiled-only output")
 			}
 		}
+		count := 0
 		if err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return err
@@ -191,12 +192,22 @@ func (e *Engine) planPrivatePrune(ctx context.Context, id string, paths []string
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
+			count++
+			if count > 250000 {
+				return errors.New("private retention inspection incomplete")
+			}
 			rel, err := filepath.Rel(root, path)
 			if err != nil {
 				return err
 			}
-			if possibleCodingSession(rel, false) || sensitiveName.MatchString(filepath.ToSlash(rel)) {
+			archivedName := filepath.Join(name, rel)
+			if possibleCodingSession(archivedName, false) || sensitiveName.MatchString(filepath.ToSlash(archivedName)) {
 				return errors.New("private/session data in generated output; retained")
+			}
+			if !d.IsDir() {
+				if _, _, _, err := artifactFileDigest(ctx, path); err != nil {
+					return errors.New("generated output content inspection failed; retained")
+				}
 			}
 			return nil
 		}); err != nil {

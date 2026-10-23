@@ -18,8 +18,6 @@ func legacyRetentionFixture(t *testing.T, compiled ...bool) (fixture, PrivatePla
 	write(t, filepath.Join(f.repo, ".env"), "fixture-private-value\n")
 	write(t, filepath.Join(f.repo, "local-data/work.txt"), "fixture unique work\n")
 	write(t, filepath.Join(f.repo, "dist/index.html"), "fixture generated html\n")
-	p := plan(t, f)
-	a := PrivatePlan{Version: 1, CreatedAt: time.Now().UTC(), ConfigDigest: ConfigDigest(f.e.Config), SourcePlan: p.ID, Candidate: p.Candidates[0]}
 	namesToArchive := []string{".env", "dist", "local-data"}
 	if len(compiled) > 0 && compiled[0] {
 		b := make([]byte, 256)
@@ -33,6 +31,13 @@ func legacyRetentionFixture(t *testing.T, compiled ...bool) (fixture, PrivatePla
 		}
 		namesToArchive = append(namesToArchive, "tmp")
 	}
+	return legacyRetentionArchive(t, f, namesToArchive)
+}
+
+func legacyRetentionArchive(t *testing.T, f fixture, namesToArchive []string) (fixture, PrivatePlan) {
+	t.Helper()
+	p := plan(t, f)
+	a := PrivatePlan{Version: 1, CreatedAt: time.Now().UTC(), ConfigDigest: ConfigDigest(f.e.Config), SourcePlan: p.ID, Candidate: p.Candidates[0]}
 	for _, name := range namesToArchive {
 		e, err := privateTree(context.Background(), filepath.Join(f.repo, name))
 		if err != nil {
@@ -49,6 +54,9 @@ func legacyRetentionFixture(t *testing.T, compiled ...bool) (fixture, PrivatePla
 	var names []string
 	for _, entry := range a.Entries {
 		names = append(names, entry.Path)
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(f.e.privateDir(a.ID), "payload", entry.Path)), 0700); err != nil {
+			t.Fatal(err)
+		}
 		if err := os.Rename(filepath.Join(f.repo, entry.Path), filepath.Join(f.e.privateDir(a.ID), "payload", entry.Path)); err != nil {
 			t.Fatal(err)
 		}
@@ -64,6 +72,51 @@ func legacyRetentionFixture(t *testing.T, compiled ...bool) (fixture, PrivatePla
 		t.Fatal(err)
 	}
 	return f, a
+}
+
+func TestPrivatePruneRetainsSensitiveEntryRootNames(t *testing.T) {
+	for _, name := range []string{"dist/.env", ".venv/.env", "dist/credentials", "dist/private.key", "dist/state.sqlite"} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			write(t, filepath.Join(f.repo, name), "fixture private work")
+			f, a := legacyRetentionArchive(t, f, []string{name})
+			if _, err := f.e.PlanPrivatePrune(context.Background(), a.ID, []string{name}); err == nil {
+				t.Fatal("sensitive archive entry root accepted")
+			}
+			if _, err := f.e.PrunePrivate(context.Background(), a.ID, []string{name}, strings.Repeat("0", 64)); err == nil {
+				t.Fatal("sensitive archive entry removed")
+			}
+			exists(t, filepath.Join(f.e.privateDir(a.ID), "payload", name))
+			if _, err := discardedPrivate(a, PrivateArchive{Discarded: []PrivateDiscard{{Entry: a.Entries[0], Policy: "reviewed_regenerable"}}}); err == nil {
+				t.Fatal("sensitive discard receipt accepted")
+			}
+		})
+	}
+}
+
+func TestPrivatePruneRetainsEmbeddedSecrets(t *testing.T) {
+	for _, compiled := range []bool{false, true} {
+		for _, offset := range []int{256, (64 << 10) - 8} {
+			f := newFixture(t)
+			name := "dist/index.html"
+			data := make([]byte, offset)
+			if compiled {
+				name = "tmp/main"
+				binary.LittleEndian.PutUint32(data[:4], 0xfeedfacf)
+				binary.LittleEndian.PutUint32(data[12:16], 2)
+			}
+			data = append(data, []byte("sk-or-v1-"+strings.Repeat("x", 24))...)
+			write(t, filepath.Join(f.repo, name), string(data))
+			if err := os.Chmod(filepath.Join(f.repo, name), 0700); err != nil {
+				t.Fatal(err)
+			}
+			f, a := legacyRetentionArchive(t, f, []string{name})
+			if _, err := f.e.PlanPrivatePrune(context.Background(), a.ID, []string{name}); err == nil {
+				t.Fatal("secret-bearing generated/compiled output accepted")
+			}
+			exists(t, filepath.Join(f.e.privateDir(a.ID), "payload", name))
+		}
+	}
 }
 
 func TestPrivatePruneCompiledOnlyRequiresWholeEntryAndExactApproval(t *testing.T) {
