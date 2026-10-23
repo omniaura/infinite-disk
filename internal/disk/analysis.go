@@ -179,6 +179,7 @@ func (e *Engine) AnalyzeSelected(ctx context.Context, p Plan, selected map[strin
 	defer cancel()
 	activity := e.Activity(ctx)
 	sessions := e.SessionInventory(ctx)
+	reportDigests := newReportDigests(ctx)
 	for i, c := range p.Candidates {
 		if !selected[c.ID] {
 			continue
@@ -188,7 +189,7 @@ func (e *Engine) AnalyzeSelected(ctx context.Context, p Plan, selected map[strin
 		}
 		fresh := e.inspectSource(ctx, c.Path, activity)
 		attachSessionsContext(ctx, &fresh, sessions)
-		e.prepareClaudeHandoffs(ctx, &fresh, activity)
+		e.prepareClaudeHandoffsWithDigest(ctx, &fresh, activity, reportDigests.sum)
 		fresh.Analysis = e.analyzeCandidate(ctx, fresh)
 		p.Candidates[i] = fresh
 	}
