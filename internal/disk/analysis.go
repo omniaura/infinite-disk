@@ -35,6 +35,7 @@ type ProjectAnalysis struct {
 	Ignored                    []IgnoredEntry    `json:"ignored,omitempty"`
 	Actions                    []SuggestedAction `json:"actions"`
 	Notes                      []string          `json:"notes"`
+	Media                      *MediaFacts       `json:"media,omitempty"`
 }
 
 // Preservation has a narrower effect than removal: excluded private ignored

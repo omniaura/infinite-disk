@@ -4,6 +4,20 @@ import {readFile} from "node:fs/promises";
 import {TOOL_NAMES,SYSTEM_PROMPT,validateInventory,createInventoryTools,validateRecommendations,validateSuggestionEvidence,constrainSuggestionEvidence,providerSettings,triage} from "../bridge.mjs";
 
 const candidate={id:"abcdef0123456789",eligible:true,age_days:30,size_bytes:5*2**30,size_complete:true,dirty_files:2,blockers:[]};
+test("media facts project private names/pixels away and media tools stay suggestions only",async()=>{
+ const media={category:"screenshot",exact_duplicate:true,hash_checked:true,old_for_review:true};
+ const analysis={source_checked:false,ignored_complete:false,ignored_count:0,ignored_example_categories:{},available_suggestions:["keep","review_media","review_duplicate"],media:{...media,path:"PRIVATE_NAME",pixels:"PRIVATE_PIXELS",exif:"PRIVATE_GPS"}};
+ const [c]=validateInventory({version:1,candidates:[{...candidate,analysis}]});assert.deepEqual(c.analysis.media,media);assert.ok(!JSON.stringify(c).includes("PRIVATE"));
+ const tools=createInventoryTools([c],[]);const suggestion=JSON.parse((await tools[2].execute("call",{id:c.id,action:"review_duplicate"})).content[0].text);assert.equal(suggestion.executed,false);assert.equal(suggestion.approved,false);
+ await assert.rejects(()=>tools[2].execute("call",{id:c.id,action:"remove_checkout"}));
+ assert.throws(()=>validateInventory({version:1,candidates:[{...candidate,analysis:{...analysis,media:{...media,category:"delete"}}}]}));
+ assert.throws(()=>validateInventory({version:1,candidates:[{...candidate,analysis:{...analysis,media:{...media,exact_duplicate:"true"}}}]}));
+});
+test("real Pi media domain carries only metadata through Ditto and records review suggestions",async()=>{
+ const original=globalThis.fetch,calls=[];const c={...candidate,analysis:{source_checked:false,ignored_complete:false,ignored_count:0,ignored_example_categories:{},available_suggestions:["keep","review_media"],media:{category:"screenshot",exact_duplicate:false,hash_checked:false,old_for_review:true}},path:"PRIVATE_PATH",pixels:"PRIVATE_PIXELS"};
+ globalThis.fetch=async(url,init)=>{const body=JSON.parse(init.body);calls.push(body);const n=calls.length;const final={recommendations:[{candidate_id:c.id,priority:1,decision:"review",reason:"Human review of unique screenshot; no disposal proof",proposed_steps:["Review locally"],suggested_actions:["review_media"]}]};const delta=n<3?{role:"assistant",tool_calls:[{index:0,id:`call_media_${n}`,type:"function",function:{name:n===1?"inventory_summary":"suggest_action",arguments:JSON.stringify(n===1?{}:{id:c.id,action:"review_media"})}}]}:{role:"assistant",content:JSON.stringify(final)};const chunk={id:"media-fixture",object:"chat.completion.chunk",created:1,model:"gm/gpt-6-luna",choices:[{index:0,delta,finish_reason:n<3?"tool_calls":"stop"}]};return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`,{headers:{"content-type":"text/event-stream"}});};
+ try{const result=await triage({version:1,domain:"media",provider:"ditto",base_url:"https://router.heyditto.ai/v1",model:"gm/gpt-6-luna",candidates:[c]},{apiKey:"ditto_inf_fixture_not_real"});assert.equal(result.requests,3);assert.deepEqual(result.recommendations[0].suggested_actions,["review_media"]);const wire=JSON.stringify(calls);assert.ok(!wire.includes("PRIVATE_PATH"));assert.ok(!wire.includes("PRIVATE_PIXELS"));assert.ok(wire.includes("not visual inspection"));assert.ok(wire.includes("Git/source/session checks are not applicable"));assert.ok(result.steps.some(s=>s.check==="suggest_action"));}finally{globalThis.fetch=original;}
+});
 test("Ditto provider accepts only explicit first-party routing",()=>{
  const input={provider:"ditto",model:"gm/gpt-6-luna",base_url:"https://router.heyditto.ai/v1"};
  const selected=providerSettings(input);assert.equal(selected.env,"DITTO_INFERENCE_API_KEY");assert.equal(selected.registration.models[0].id,input.model);
