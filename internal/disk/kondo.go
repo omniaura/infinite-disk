@@ -11,10 +11,10 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -104,12 +104,12 @@ func (e *Engine) CacheScan(ctx context.Context) (Plan, error) {
 		return Plan{}, err
 	}
 	defer release()
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-	defer cancel()
-	// Discover recent dependency installs too. The independent native policy
-	// applies age checks to other artifacts; discovery never authorizes removal.
-	args := []string{"--dry-run", "--same-filesystem", "--older", "0d", "--"}
+	// Discovery and inspection get separate budgets so a slow walk cannot
+	// consume the time needed to verify what it found.
+	discoverCtx, cancelDiscover := context.WithTimeout(ctx, 15*time.Minute)
+	defer cancelDiscover()
 	p := Plan{Version: ProtocolVersion, CreatedAt: e.Now().UTC(), Mode: "report-only", ConfigDigest: ConfigDigest(e.CacheConfig()), Candidates: []Candidate{}, Warnings: []string{}}
+	var roots []string
 	for _, root := range minimalRoots(e.Config.Roots) {
 		if _, err := os.Stat(root); errors.Is(err, os.ErrNotExist) {
 			p.Warnings = append(p.Warnings, "A configured root is missing.")
@@ -118,33 +118,57 @@ func (e *Engine) CacheScan(ctx context.Context) (Plan, error) {
 		if err := noSymlinkAncestors(root); err != nil {
 			return p, err
 		}
-		args = append(args, root)
+		roots = append(roots, root)
 	}
-	if len(args) == 5 {
+	if len(roots) == 0 {
 		return p, errors.New("no existing discovery roots")
 	}
-	cmd := exec.CommandContext(ctx, "kondo", args...)
-	cmd.Env = gitEnvironment()
-	out := &cappedBuffer{limit: 8 << 20}
-	diagnostics := &cappedBuffer{limit: 64 << 10}
-	cmd.Stdout = out
-	cmd.Stderr = diagnostics
-	if err := cmd.Run(); err != nil || out.overflow || diagnostics.Len() > 0 || diagnostics.overflow {
-		if ctx.Err() != nil {
-			return p, ctx.Err()
-		}
-		return p, errors.New("Kondo dry-run failed; install Kondo 0.9 with --dry-run support, or inspect configured roots")
-	}
-	candidates, err := parseKondo(out.Bytes())
+	// Discover recent dependency installs too. The independent native policy
+	// applies age checks to other artifacts; discovery never authorizes removal.
+	candidates, warnings, err := e.kondoDiscover(discoverCtx, roots)
+	p.Warnings = append(p.Warnings, warnings...)
 	if err != nil {
 		return p, err
 	}
-	activity := e.Activity(ctx)
-	for _, c := range candidates {
-		if ctx.Err() != nil {
-			return p, ctx.Err()
+	inspectCtx, cancelInspect := context.WithTimeout(ctx, 15*time.Minute)
+	defer cancelInspect()
+	activity := e.Activity(inspectCtx)
+	// Inspection is dominated by filesystem walks, so verify several artifacts
+	// at once. Results keep discovery order; unverified ones are omitted.
+	inspected := make([]*Candidate, len(candidates))
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	done := 0
+	sem := make(chan struct{}, 4)
+	for i, c := range candidates {
+		sem <- struct{}{}
+		if inspectCtx.Err() != nil {
+			<-sem
+			break
 		}
-		p.Candidates = append(p.Candidates, e.inspectCache(ctx, c, activity))
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			checked := e.inspectCache(inspectCtx, c, activity)
+			if inspectCtx.Err() != nil {
+				return
+			}
+			inspected[i] = &checked
+			mu.Lock()
+			done++
+			e.progress("Verifying artifacts are safe to remove", done, len(candidates))
+			mu.Unlock()
+		}()
+	}
+	wg.Wait()
+	for _, c := range inspected {
+		if c != nil {
+			p.Candidates = append(p.Candidates, *c)
+		}
+	}
+	if missing := len(candidates) - len(p.Candidates); missing > 0 {
+		p.Warnings = append(p.Warnings, fmt.Sprintf("Inspection hit its time limit; %d of %d discovered artifacts were not verified and are omitted.", missing, len(candidates)))
 	}
 	home, _ := os.UserHomeDir()
 	p.Space, err = DiskSpace(home)

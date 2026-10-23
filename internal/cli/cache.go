@@ -8,6 +8,7 @@ import (
 	"io"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/omniaura/infinite-disk/internal/disk"
 	"github.com/spf13/cobra"
@@ -43,7 +44,15 @@ func cacheCommand(load func() (*disk.Engine, error), asJSON *bool) *cobra.Comman
 			return err
 		}
 		if !*asJSON {
-			fmt.Fprintln(cmd.ErrOrStderr(), "Scanning build artifacts with Kondo (report only; up to five minutes). Ctrl+C cancels.")
+			fmt.Fprintln(cmd.ErrOrStderr(), "Scanning build artifacts with Kondo (report only; large trees are split into folders, partial results are kept). Ctrl+C cancels.")
+			lastPhase := ""
+			lastProgress := time.Time{}
+			e.Progress = func(p disk.ScanProgress) {
+				if p.Phase != lastPhase || time.Since(lastProgress) >= 5*time.Second {
+					fmt.Fprintf(cmd.ErrOrStderr(), "  %s (%d / %d)\n", p.Phase, p.Checked, p.Discovered)
+					lastPhase, lastProgress = p.Phase, time.Now()
+				}
+			}
 		}
 		p, err := e.CacheScan(cmd.Context())
 		if err != nil {
@@ -103,14 +112,15 @@ func cacheCommand(load func() (*disk.Engine, error), asJSON *bool) *cobra.Comman
 		}
 		reader := bufio.NewReader(cmd.InOrStdin())
 		results := []disk.Receipt{}
-		for _, c := range p.Candidates {
+		approveAll := false
+		for i, c := range p.Candidates {
 			if err := cmd.Context().Err(); err != nil {
 				return err
 			}
 			if !c.Eligible || (project != "" && c.ID != project) {
 				continue
 			}
-			if approval != p.ID {
+			if approval != p.ID && !(approveAll && c.Kind == "kondo-cache") {
 				fmt.Fprintln(cmd.ErrOrStderr())
 				if c.Kind == "binary-artifact" {
 					wrapped(styled(cmd.ErrOrStderr(), toneHeading), "  ", fmt.Sprintf("Likely rebuildable binary: %s (%s)", c.Path, size(c.SizeBytes)))
@@ -128,7 +138,21 @@ func cacheCommand(load func() (*disk.Engine, error), asJSON *bool) *cobra.Comman
 						fmt.Fprintln(cmd.ErrOrStderr(), "Disposable node_modules: delete without a backup, including installed package fixtures. Tracked reinstall inputs stay.")
 					}
 					fmt.Fprintln(cmd.ErrOrStderr(), "Source and checkout stay. No commits or uploads. Reinstall/rebuild later.")
-					fmt.Fprint(styled(cmd.ErrOrStderr(), tonePrompt), "Delete this artifact directory? [y/N] (q quits, Ctrl+C cancels) ")
+					// Offer one explicit, sized batch approval for regenerable
+					// directories; each is still revalidated individually.
+					var remaining int
+					var remainingBytes uint64
+					for _, r := range p.Candidates[i:] {
+						if r.Eligible && r.Kind == "kondo-cache" {
+							remaining++
+							remainingBytes += r.SizeBytes
+						}
+					}
+					if project == "" && remaining > 1 {
+						fmt.Fprint(styled(cmd.ErrOrStderr(), tonePrompt), fmt.Sprintf("Delete this artifact directory? [y/N/a] (a approves all %d remaining regenerable directories, %s) ", remaining, size(remainingBytes)))
+					} else {
+						fmt.Fprint(styled(cmd.ErrOrStderr(), tonePrompt), "Delete this artifact directory? [y/N] (q quits, Ctrl+C cancels) ")
+					}
 				}
 				line, err := readLine(cmd.Context(), reader)
 				if errors.Is(err, io.EOF) {
@@ -141,12 +165,19 @@ func cacheCommand(load func() (*disk.Engine, error), asJSON *bool) *cobra.Comman
 				if answer == "q" || answer == "quit" {
 					break
 				}
-				if answer != "y" && answer != "yes" {
+				if answer == "a" && c.Kind == "kondo-cache" && project == "" {
+					approveAll = true
+				} else if answer != "y" && answer != "yes" {
 					continue
 				}
 			}
 			receipt, err := e.ApplyCache(cmd.Context(), p, c.ID, p.ID)
 			results = append(results, receipt)
+			if err != nil && approveAll {
+				// One busy or changed directory must not abort the batch; it stays.
+				fmt.Fprintf(cmd.ErrOrStderr(), "Kept %s: %v\n", c.Path, err)
+				continue
+			}
 			if err != nil {
 				if *asJSON {
 					_ = json.NewEncoder(cmd.OutOrStdout()).Encode(results)
