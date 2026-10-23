@@ -54,6 +54,59 @@ Repeat `--root` for multiple project-parent directories. With no roots supplied,
 
 ## Read a report
 
+### Keep recovery storage lean
+
+Private preservation refuses named dependency/build/cache outputs (including
+`node_modules`, `dist`, Python caches, and `.xgo/gen`) and recognized compiled
+executables. Mixed private directories must be separated or cleaned with an
+independently reviewed plan first. Recognition is **not** deletion authority:
+unknown files, credentials, native sessions, fixtures and vendor data stay
+protected. A compiled executable can still receive an explicit artifact
+keep/archive/discard decision; it is not silently copied as private work.
+
+Older private archives can contain these generated outputs. Review **exact
+whole entries**, using the state directory in the matching configuration:
+
+```sh
+infinite-disk private prune --plan ARCHIVE_ID --entry dist --json
+# After reviewing the returned retention plan, repeat the same selection:
+infinite-disk private prune --plan ARCHIVE_ID --entry dist --approve-plan RETENTION_PLAN_ID
+```
+
+Without `--approve-plan`, this is report-only. Apply rechecks activity, original
+archive identity, every selected byte and the exact approval digest. It never
+pushes or touches a source checkout. Mixed executable/source entries and
+private/session files remain held. `.xgo` is not broadly disposable: only a
+`gen`-only archive entry can qualify, and private/session checks still apply.
+The immutable original plan remains; a durable discard receipt tells future
+private restore which generated entries were intentionally removed. Other
+private entries retain their original recovery checks. Restore and archive
+verification skip a discarded entry only when its payload is actually absent.
+Interrupted discards may leave remnants: these block recovery until separately
+inspected, rather than silently suppressing files still present in the archive.
+Receipts never authorize deleting other entries and are not authentication
+against someone who can rewrite the same owner's private state.
+Completed legacy receipts may name sensitive-looking installed package files
+under `node_modules/<package>/...` or `.venv/lib/pythonX.Y/site-packages/<package>/...`.
+Their absent payloads do not block restoring other unique data. This narrow
+receipt-only compatibility does not approve new deletions, weaken content
+inspection, or retroactively prove the removed files' contents were harmless.
+Older binaries do not understand discard receipts; use this version for a
+pruned archive's private restore. Config changes do not grant source cleanup:
+state-local retention validates the immutable archive independently of later
+discovery settings, while ordinary source apply/restore bindings stay intact.
+
+On APFS, new Claude snapshots also share verified file-level content across
+snapshot versions within the same state directory. Existing backup paths stay
+independent private regular files, never hardlinks to live sessions. This avoids
+recopying unchanged sidecars when only a transcript changes. Other platforms or
+filesystems retain normal copies. Legacy backup paths remain supported; there
+is no automatic purge of old snapshots or Git history.
+
+Git recovery bundles can contain other branches, stashes and local-only objects
+in addition to a remotely saved recovery commit. A matching remote tip alone
+is **not** proof that the entire bundle can be discarded.
+
 ### Rolling scan, triage, review, repeat
 
 ```sh
