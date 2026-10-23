@@ -199,12 +199,14 @@ func verifyNativeResume(ctx context.Context, route disk.SessionResume) error {
 		return errors.New("native resume capability check failed; no session was launched")
 	}
 	if route.Provider == "Claude Code" {
-		match := regexp.MustCompile(`^2\.1\.([0-9]+)(?:\s|$)`).FindStringSubmatch(strings.TrimSpace(out.String()))
-		if len(match) != 2 {
-			return errors.New("orphan resume adapter requires verified Claude Code 2.1.302+ in the 2.1 series")
+		match := regexp.MustCompile(`^(\d{1,9})\.(\d{1,9})\.(\d{1,9})(?:\s|$)`).FindStringSubmatch(strings.TrimSpace(out.String()))
+		if len(match) != 4 {
+			return errors.New("orphan resume adapter could not read the Claude Code version; no session was launched")
 		}
-		patch, _ := strconv.Atoi(match[1])
-		if patch < 302 {
+		major, _ := strconv.Atoi(match[1])
+		minor, _ := strconv.Atoi(match[2])
+		patch, _ := strconv.Atoi(match[3])
+		if major < 2 || major == 2 && (minor < 1 || minor == 1 && patch < 302) {
 			return errors.New("update Claude Code to 2.1.302+ before using orphan resume")
 		}
 	} else if !strings.Contains(out.String(), "--cd") {

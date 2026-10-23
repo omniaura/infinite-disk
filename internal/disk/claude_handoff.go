@@ -196,6 +196,7 @@ func claudeFiles(s Session) ([]SessionFile, error) {
 }
 
 func nativeClaudeIdentity(ctx context.Context) (string, string, error) {
+	parent := ctx
 	bin, err := exec.LookPath("claude")
 	if err != nil {
 		return "", "", errors.New("Claude Code is not installed")
@@ -216,11 +217,17 @@ func nativeClaudeIdentity(ctx context.Context) (string, string, error) {
 	if cmd.Run() != nil || out.overflow {
 		return "", "", errors.New("Claude Code version check is unavailable; checkout and sessions retained")
 	}
-	if !testedClaudeVersion(strings.TrimSpace(out.String())) {
-		return "", "", claudeCompatibilityError(strings.TrimSpace(out.String()))
+	output := strings.TrimSpace(out.String())
+	version := strings.TrimSuffix(output, " (Claude Code)")
+	if !claudeVersionOutput.MatchString(output) || version == output {
+		return "", "", claudeCompatibilityError(output)
 	}
-	b, _ := json.Marshal([]any{bin, info.Size(), info.ModTime().UnixNano(), strings.TrimSpace(out.String())})
-	return bin, PlanDigest(b), nil
+	b, _ := json.Marshal([]any{bin, info.Size(), info.ModTime().UnixNano(), output})
+	identity := PlanDigest(b)
+	if err := verifiedClaudeExecutable(parent, bin, identity, version); err != nil {
+		return "", "", err
+	}
+	return bin, identity, nil
 }
 
 func claudeWorkspacePrefix(path string) (string, bool) {
