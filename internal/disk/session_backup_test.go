@@ -96,6 +96,30 @@ func TestChangedSessionSnapshotsRetainEarlierVersions(t *testing.T) {
 	}
 }
 
+func TestSessionContentSharingRetainsIndependentRegularFiles(t *testing.T) {
+	if !sessionClonePlatform {
+		t.Skip("APFS content sharing; other platforms retain ordinary copies")
+	}
+	f, c := backupFixture(t)
+	r := fixtureBackup(t, f, c, "1111111111111111")
+	h := r.SessionHandoffs[0]
+	for _, file := range h.Files {
+		blob := filepath.Join(f.e.Config.StateDir, "session-backups", "content-v1", file.SHA256)
+		if _, err := os.Lstat(blob); os.IsNotExist(err) {
+			t.Skip("filesystem does not support cloning")
+		}
+		if err := verifySnapshotPayload(blob, file); err != nil {
+			t.Fatal(err)
+		}
+		destination := filepath.Join(h.BackupDir, pathID(file.Path))
+		a, _ := os.Stat(blob)
+		b, _ := os.Stat(destination)
+		if os.SameFile(a, b) || privateSnapshotPath(destination, false) != nil {
+			t.Fatal("content sharing introduced hardlinks or unsafe storage")
+		}
+	}
+}
+
 func TestUnsafeExistingSessionSnapshotFailsClosed(t *testing.T) {
 	for _, change := range []string{"corrupt_payload", "corrupt_manifest", "missing_manifest", "extra_file", "payload_symlink", "payload_hardlink", "payload_permissions", "directory_permissions", "directory_symlink"} {
 		t.Run(change, func(t *testing.T) {

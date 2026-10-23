@@ -38,11 +38,12 @@ type PrivatePlan struct {
 	Bytes        uint64         `json:"bytes"`
 }
 type PrivateArchive struct {
-	Version  int      `json:"version"`
-	PlanID   string   `json:"plan_id"`
-	Status   string   `json:"status"`
-	Moved    []string `json:"moved"`
-	Verified []string `json:"verified"`
+	Version   int              `json:"version"`
+	PlanID    string           `json:"plan_id"`
+	Status    string           `json:"status"`
+	Moved     []string         `json:"moved"`
+	Verified  []string         `json:"verified"`
+	Discarded []PrivateDiscard `json:"discarded,omitempty"`
 }
 
 func privateID(p PrivatePlan) string { p.ID = ""; b, _ := json.Marshal(p); return PlanDigest(b) }
@@ -273,6 +274,9 @@ func (e *Engine) privateEntries(ctx context.Context, c Candidate) ([]PrivateEntr
 		if err := rejectDependencyArchive(ctx, full, relative); err != nil {
 			return nil, err
 		}
+		if err := rejectRegenerableArchive(ctx, full, relative); err != nil {
+			return nil, err
+		}
 		for _, s := range c.Sessions {
 			if within(full, s.Store) {
 				return nil, errors.New("private data contains native session storage")
@@ -464,11 +468,18 @@ func (e *Engine) verifyPrivateArchives(ctx context.Context, c *Candidate) error 
 		if r.Status != "verified_local_archive" || len(r.Verified) != len(p.Entries) {
 			return errors.New("private archive incomplete; restore or finish recovery before removal")
 		}
+		discarded, err := discardedPrivate(p, r)
+		if err != nil {
+			return err
+		}
 		a := e.Activity(ctx)
 		if !a.Known || a.Busy(e.privateDir(id)) {
 			return errors.New("private archive is in use or activity unknown")
 		}
 		for _, entry := range p.Entries {
+			if discarded[entry.Path] {
+				continue
+			}
 			if !slices.Contains(r.Verified, entry.Path) {
 				return errors.New("private entry lacks verification")
 			}
@@ -624,8 +635,19 @@ func (e *Engine) RestorePrivate(ctx context.Context, id, approval string) error 
 		return errors.New("restore requires an idle checkout")
 	}
 	payload := filepath.Join(e.privateDir(id), "payload")
+	r, err := e.PrivateReceipt(id)
+	if err != nil {
+		return err
+	}
+	discarded, err := discardedPrivate(p, r)
+	if err != nil {
+		return err
+	}
 	var restore []PrivateEntry
 	for _, entry := range p.Entries {
+		if discarded[entry.Path] {
+			continue
+		}
 		src, dst := filepath.Join(payload, entry.Path), filepath.Join(p.Candidate.Path, entry.Path)
 		if _, err = os.Lstat(dst); err == nil {
 			hash, hashErr := privateTree(ctx, dst)
@@ -683,7 +705,8 @@ func (e *Engine) RestorePrivate(ctx context.Context, id, approval string) error 
 	}
 	// Restored entries remain archived; this status also resolves an interrupted
 	// relocation once every original path has been recovered and verified.
-	return e.saveArchive(PrivateArchive{Version: 1, PlanID: id, Status: "restored"})
+	r.Status = "restored"
+	return e.saveArchive(r)
 }
 func copyPrivateTree(ctx context.Context, src, dst string) error {
 	if ctx.Err() != nil {

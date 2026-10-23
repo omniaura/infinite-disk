@@ -140,7 +140,7 @@ func (e *Engine) sharedClaudeSnapshot(h ClaudeHandoff) (string, error) {
 		return "", errors.New("cannot create private session snapshot")
 	}
 	for _, f := range h.Files {
-		if err = copySessionFile(f.Path, filepath.Join(dir, pathID(f.Path)), f); err != nil {
+		if err = e.snapshotSessionFile(f, filepath.Join(dir, pathID(f.Path))); err != nil {
 			return "", err
 		}
 	}
@@ -162,4 +162,56 @@ func (e *Engine) sharedClaudeSnapshot(h ClaudeHandoff) (string, error) {
 		return "", err
 	}
 	return dir, nil
+}
+
+// Unchanged sidecars can recur in many versions of a session snapshot. On
+// APFS, preserve every existing regular-file path while sharing physical bytes
+// with a verified state-local content blob. Never hardlink or alias live data.
+func (e *Engine) snapshotSessionFile(expected SessionFile, destination string) error {
+	if !sessionClonePlatform {
+		return copySessionFile(expected.Path, destination, expected)
+	}
+	root := filepath.Join(e.Config.StateDir, "session-backups", "content-v1")
+	if noSymlinkAncestors(root) != nil || os.MkdirAll(root, 0700) != nil || privateSnapshotPath(root, true) != nil {
+		return errors.New("unsafe session content root")
+	}
+	if !validPlanID.MatchString(expected.SHA256) {
+		return errors.New("invalid session content identity")
+	}
+	blob := filepath.Join(root, expected.SHA256)
+	created := false
+	if _, err := os.Lstat(blob); errors.Is(err, os.ErrNotExist) {
+		if err = copySessionFile(expected.Path, blob, expected); err != nil {
+			return err
+		}
+		created = true
+		if err = syncDir(root); err != nil {
+			return err
+		}
+	} else if err != nil {
+		return errors.New("session content unavailable")
+	}
+	if err := verifySnapshotPayload(blob, expected); err != nil {
+		return err
+	}
+	cloned, err := cloneSessionPayload(blob, destination)
+	if err != nil {
+		return errors.New("session content clone failed; live files and existing recovery retained")
+	}
+	if !cloned {
+		// No additional full-size blob on filesystems without clone support.
+		if created {
+			return renameExclusive(blob, destination)
+		}
+		return copySessionFile(blob, destination, expected)
+	}
+	if err = verifySnapshotPayload(destination, expected); err != nil {
+		return err
+	}
+	f, err := os.Open(destination)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return f.Sync()
 }

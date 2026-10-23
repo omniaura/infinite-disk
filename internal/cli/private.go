@@ -100,6 +100,46 @@ func privateCommand(load func() (*disk.Engine, error), asJSON *bool) *cobra.Comm
 		root.AddCommand(command)
 	}
 	root.AddCommand(plan)
+	var pruneArchive, pruneApproval string
+	var pruneEntries []string
+	prune := &cobra.Command{Use: "prune", Short: "Review or explicitly discard exact regenerable entries from a legacy private archive", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		e, err := load()
+		if err != nil {
+			return err
+		}
+		var p disk.PrivatePrunePlan
+		if pruneApproval == "" {
+			p, err = e.PlanPrivatePrune(cmd.Context(), pruneArchive, pruneEntries)
+		} else {
+			p, err = e.PrunePrivate(cmd.Context(), pruneArchive, pruneEntries, pruneApproval)
+		}
+		if err != nil {
+			return err
+		}
+		if *asJSON {
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(p)
+		}
+		if pruneApproval == "" {
+			fmt.Fprintln(cmd.OutOrStdout(), "REPORT ONLY — exact archive entries proposed for permanent discard:")
+		} else {
+			fmt.Fprintln(cmd.OutOrStdout(), "Approved regenerable entries removed. Unique work and sessions were not targeted.")
+		}
+		for _, entry := range p.Entries {
+			fmt.Fprintf(cmd.OutOrStdout(), "  %s  %s\n", size(entry.Entry.Bytes), plain(entry.Entry.Path))
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "Retention plan: %s\n", p.ID)
+		fmt.Fprintln(cmd.OutOrStdout(), "Recovery metadata retains the original plan and explicit discard receipt. Other private entries remain restorable.")
+		if pruneApproval == "" {
+			fmt.Fprintln(cmd.OutOrStdout(), "Review these paths before repeating with --approve-plan and the exact retention plan ID.")
+		}
+		return nil
+	}}
+	prune.Flags().StringVar(&pruneArchive, "plan", "", "Exact existing private archive ID")
+	prune.Flags().StringArrayVar(&pruneEntries, "entry", nil, "Exact archived regenerable entry; repeat to select multiple roots")
+	prune.Flags().StringVar(&pruneApproval, "approve-plan", "", "Explicit approval of the exact retention plan ID; omitted means report-only")
+	_ = prune.MarkFlagRequired("plan")
+	_ = prune.MarkFlagRequired("entry")
+	root.AddCommand(prune)
 	return root
 }
 func renderPrivate(cmd *cobra.Command, p disk.PrivatePlan) {
@@ -112,7 +152,8 @@ func renderPrivate(cmd *cobra.Command, p disk.PrivatePlan) {
 	}
 	fmt.Fprintln(w, "  Apply moves only these ignored/private paths to a verified local archive.")
 	fmt.Fprintln(w, "  Source, Git history and external sessions stay; no files are uploaded.")
-	fmt.Fprintln(w, "  Do not remove the archive. Restore copies back without overwriting.")
+	fmt.Fprintln(w, "  Do not remove the archive wholesale. Use private prune to review regenerable entries.")
+	fmt.Fprintln(w, "  Restore copies retained private work back without overwriting.")
 	fmt.Fprintf(w, "  Private plan: %s\n", p.ID)
 	fmt.Fprintf(w, "  Approve: infinite-disk private apply --plan %s --approve-plan %s\n", p.ID, p.ID)
 	fmt.Fprintln(w, "  Use the same --config for every command. Reanalyze after archiving.")
