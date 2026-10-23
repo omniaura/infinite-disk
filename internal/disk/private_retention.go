@@ -103,10 +103,33 @@ func discardedPrivate(p PrivatePlan, r PrivateArchive) (map[string]bool, error) 
 	return out, nil
 }
 
+// Receipts describe completed removal, not permission to suppress a payload
+// that still exists. Interrupted or inconsistent discards require inspection.
+// These owner-private records are not authentication against same-owner edits.
+func (e *Engine) validatedPrivateDiscards(ctx context.Context, p PrivatePlan, r PrivateArchive) (map[string]bool, error) {
+	discarded, err := discardedPrivate(p, r)
+	if err != nil {
+		return nil, err
+	}
+	for name := range discarded {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		root := filepath.Join(e.privateDir(p.ID), "payload", name)
+		if noSymlinkAncestors(root) != nil {
+			return nil, errors.New("unsafe discarded payload path; retained")
+		}
+		if _, err := os.Lstat(root); !errors.Is(err, os.ErrNotExist) {
+			return nil, errors.New("discarded payload remains or cannot be inspected; review interrupted cleanup before recovery")
+		}
+	}
+	return discarded, nil
+}
+
 // The archive is an immutable state artifact, independent of later project
 // discovery configuration. Validate its content ID rather than bypassing the
 // config binding of ordinary checkout apply/restore operations.
-func (e *Engine) retentionArchive(id string) (PrivatePlan, PrivateArchive, error) {
+func (e *Engine) retentionArchive(ctx context.Context, id string) (PrivatePlan, PrivateArchive, error) {
 	var p PrivatePlan
 	if !validPlanID.MatchString(id) {
 		return p, PrivateArchive{}, errors.New("invalid archive ID")
@@ -124,7 +147,7 @@ func (e *Engine) retentionArchive(id string) (PrivatePlan, PrivateArchive, error
 	if err != nil || r.Status != "verified_local_archive" {
 		return p, r, errors.New("only verified local archives can be pruned")
 	}
-	if _, err = discardedPrivate(p, r); err != nil {
+	if _, err = e.validatedPrivateDiscards(ctx, p, r); err != nil {
 		return p, r, err
 	}
 	return p, r, nil
@@ -142,7 +165,7 @@ func (e *Engine) PlanPrivatePrune(ctx context.Context, id string, paths []string
 
 func (e *Engine) planPrivatePrune(ctx context.Context, id string, paths []string) (PrivatePrunePlan, error) {
 	out := PrivatePrunePlan{Version: 1, Archive: id, StateDir: e.Config.StateDir}
-	p, r, err := e.retentionArchive(id)
+	p, r, err := e.retentionArchive(ctx, id)
 	if err != nil {
 		return out, err
 	}
@@ -282,7 +305,7 @@ func (e *Engine) PrunePrivate(ctx context.Context, id string, paths []string, ap
 	if approval != out.ID {
 		return out, errors.New("retention plan changed or approval does not match")
 	}
-	_, r, err := e.retentionArchive(id)
+	_, r, err := e.retentionArchive(ctx, id)
 	if err != nil {
 		return out, err
 	}

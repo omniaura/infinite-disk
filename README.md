@@ -80,8 +80,12 @@ private/session files remain held. `.xgo` is not broadly disposable: only a
 `gen`-only archive entry can qualify, and private/session checks still apply.
 The immutable original plan remains; a durable discard receipt tells future
 private restore which generated entries were intentionally removed. Other
-private entries retain their original recovery checks. Interrupted discards
-may leave generated remnants; they do not authorize deleting other entries.
+private entries retain their original recovery checks. Restore and archive
+verification skip a discarded entry only when its payload is actually absent.
+Interrupted discards may leave remnants: these block recovery until separately
+inspected, rather than silently suppressing files still present in the archive.
+Receipts never authorize deleting other entries and are not authentication
+against someone who can rewrite the same owner's private state.
 Older binaries do not understand discard receipts; use this version for a
 pruned archive's private restore. Config changes do not grant source cleanup:
 state-local retention validates the immutable archive independently of later

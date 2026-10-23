@@ -272,6 +272,88 @@ func TestPrivatePruneRevalidatesAfterReview(t *testing.T) {
 	exists(t, filepath.Join(f.e.privateDir(a.ID), "payload/dist/new-work.txt"))
 }
 
+func TestPrivateDiscardCannotSuppressRemainingPayload(t *testing.T) {
+	for _, kind := range []string{"compiled receipt", "xgo receipt", "interrupted discard", "dangling symlink", "symlink ancestor"} {
+		t.Run(kind, func(t *testing.T) {
+			f, a := legacyRetentionFixture(t)
+			name, policy := "local-data", "reviewed_compiled_only"
+			if kind == "xgo receipt" {
+				f = newFixture(t)
+				write(t, filepath.Join(f.repo, ".xgo/gen/output.go"), "fixture generated output")
+				write(t, filepath.Join(f.repo, ".xgo/unique-work.txt"), "fixture unique work")
+				f, a = legacyRetentionArchive(t, f, []string{".xgo"})
+				name, policy = ".xgo", "verified_xgo_gen_only"
+			} else if kind != "compiled receipt" {
+				name, policy = "dist", "reviewed_regenerable"
+				root := filepath.Join(f.e.privateDir(a.ID), "payload", name)
+				if kind == "interrupted discard" {
+					write(t, filepath.Join(root, "remnant.txt"), "fixture remnant")
+					if err := os.Remove(filepath.Join(root, "index.html")); err != nil {
+						t.Fatal(err)
+					}
+				} else {
+					if err := os.RemoveAll(root); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.Symlink(filepath.Join(f.root, "missing"), root); err != nil {
+						t.Fatal(err)
+					}
+					if kind == "symlink ancestor" {
+						name = "dist/index.html"
+						a.Entries[1].Path = name
+						a.ID = privateID(a)
+						// The lower-level validator also rejects an absent leaf
+						// under a dangling ancestor without following that link.
+						if err := os.MkdirAll(filepath.Dir(f.e.privateDir(a.ID)), 0700); err != nil {
+							t.Fatal(err)
+						}
+						if err := os.MkdirAll(filepath.Join(f.e.privateDir(a.ID), "payload"), 0700); err != nil {
+							t.Fatal(err)
+						}
+						if err := os.Symlink(filepath.Join(f.root, "missing"), filepath.Join(f.e.privateDir(a.ID), "payload/dist")); err != nil {
+							t.Fatal(err)
+						}
+						r := PrivateArchive{Discarded: []PrivateDiscard{{Entry: a.Entries[1], Policy: policy}}}
+						if _, err := f.e.validatedPrivateDiscards(context.Background(), a, r); err == nil {
+							t.Fatal("dangling ancestor treated as completed discard")
+						}
+						return
+					}
+				}
+			}
+			r, err := f.e.PrivateReceipt(a.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, entry := range a.Entries {
+				if entry.Path == name {
+					r.Discarded = []PrivateDiscard{{Entry: entry, Policy: policy}}
+				}
+			}
+			if err := f.e.saveArchive(r); err != nil {
+				t.Fatal(err)
+			}
+			ctx := context.Background()
+			if _, _, err := f.e.retentionArchive(ctx, a.ID); err == nil {
+				t.Fatal("remaining payload accepted by retention loader")
+			}
+			c := a.Candidate
+			if err := f.e.verifyPrivateArchives(ctx, &c); err == nil {
+				t.Fatal("remaining payload silently skipped by verification")
+			}
+			if err := f.e.RestorePrivate(ctx, a.ID, a.ID); err == nil {
+				t.Fatal("remaining payload silently skipped by restore")
+			}
+			if kind == "compiled receipt" {
+				exists(t, filepath.Join(f.e.privateDir(a.ID), "payload/local-data/work.txt"))
+			}
+			if kind == "xgo receipt" {
+				exists(t, filepath.Join(f.e.privateDir(a.ID), "payload/.xgo/unique-work.txt"))
+			}
+		})
+	}
+}
+
 func TestPrivatePruneApprovalIsBoundToStateDirectory(t *testing.T) {
 	f, a := legacyRetentionFixture(t)
 	ctx := context.Background()

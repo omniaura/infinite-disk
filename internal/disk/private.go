@@ -468,7 +468,7 @@ func (e *Engine) verifyPrivateArchives(ctx context.Context, c *Candidate) error 
 		if r.Status != "verified_local_archive" || len(r.Verified) != len(p.Entries) {
 			return errors.New("private archive incomplete; restore or finish recovery before removal")
 		}
-		discarded, err := discardedPrivate(p, r)
+		discarded, err := e.validatedPrivateDiscards(ctx, p, r)
 		if err != nil {
 			return err
 		}
@@ -639,7 +639,7 @@ func (e *Engine) RestorePrivate(ctx context.Context, id, approval string) error 
 	if err != nil {
 		return err
 	}
-	discarded, err := discardedPrivate(p, r)
+	discarded, err := e.validatedPrivateDiscards(ctx, p, r)
 	if err != nil {
 		return err
 	}
