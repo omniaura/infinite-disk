@@ -227,7 +227,7 @@ func TestPrivatePruneApprovalIsBoundToStateDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := f.e.Config
-	c.StateDir = filepath.Join(f.root, "other-state")
+	c.StateDir = filepath.Join(filepath.Dir(f.root), "other-state")
 	if err = EnsureState(c); err != nil {
 		t.Fatal(err)
 	}
