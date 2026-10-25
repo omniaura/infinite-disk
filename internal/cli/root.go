@@ -164,6 +164,7 @@ func New(version string) *cobra.Command {
 	root.AddCommand(review)
 	root.AddCommand(actionsCommand(load, &configPath, &asJSON, false), actionsCommand(load, &configPath, &asJSON, true))
 	root.AddCommand(privateCommand(load, &asJSON))
+	root.AddCommand(recoveryCommand(load, &asJSON))
 	root.AddCommand(plansCommand(load, &asJSON))
 	var applyPlan, project, approval string
 	var preserveOnly bool
