@@ -107,6 +107,27 @@ Git recovery bundles can contain other branches, stashes and local-only objects
 in addition to a remotely saved recovery commit. A matching remote tip alone
 is **not** proof that the entire bundle can be discarded.
 
+### Prune recovery bundles a remote already covers
+
+Recovery bundles accumulate: the watcher never removes them. `recovery verify`
+proves which ones are already safe on their remote and deletes nothing:
+
+```sh
+infinite-disk recovery verify
+# Re-hashes and re-proves each covered bundle against a fresh fetch, writes a
+# restore receipt (remote, refs, commits), then deletes only those bundles:
+infinite-disk recovery prune --report REPORT_ID --approve-report REPORT_ID
+```
+
+A bundle holds exactly the objects reachable from its refs, so it is covered
+when every bundle tip exists on the receipt's remote and is reachable from a ref
+the remote keeps: the default branch, tags, GitHub pull-request heads, or
+`infinite-disk/recovery/*` branches. Ordinary branches don't count because they
+are deleted after merge. Bundles with no receipt, local-only commits, private
+blob/tree refs, or branch-only coverage are retained with a reason. Verification
+keeps one treeless mirror per remote under `cache/remote-mirrors/` and never
+pushes.
+
 ### Rolling scan, triage, review, repeat
 
 ```sh
@@ -425,7 +446,7 @@ The watcher checks the home filesystem every minute. It audits daily and, under 
 | Preservation | `receipts/` and `recovery/`, private; no automatic expiry |
 | Watcher health | `watch.json`; `status --json` |
 
-`--json` reports use protocol version 1. Local plans/receipts do contain project paths and should not be uploaded casually. Recovery bundles contain source and Git history; keep the private state on an encrypted disk and back it up. The watcher does not clean its own recovery bundles or model dependency installation.
+`--json` reports use protocol version 1. Local plans/receipts do contain project paths and should not be uploaded casually. Recovery bundles contain source and Git history; keep the private state on an encrypted disk and back it up. The watcher does not clean its own recovery bundles or model dependency installation; use `recovery verify` and `recovery prune` to remove bundles a remote already covers.
 
 V1 deliberately blocks active/recent projects, unknown activity, sensitive changed files, unknown ignored data, submodules, nested repositories, shallow/LFS/annex/shared-object repositories, unusual staged/unstaged combinations, custom repository execution/credential configuration, symlinked targets, and Codex-managed worktrees requiring their owner's archive lifecycle. Only ignored `node_modules`, `.venv`, and `__pycache__` are treated as regenerable; inspect any project where you put irreplaceable data there. Secret detection is conservative, **not a comprehensive data-loss prevention system**. Existing committed secrets/history are not comprehensively scanned; only the approved source recovery branch goes to the same trusted origin. Complete-history clone bundles also retain previously unreachable/reflog-only objects locally, with exact independent object/ref verification. Local Git configuration, hooks, raw reflog message/time files and dependency contents are not copied; historical Git objects referenced only by reflogs are retained. Preserve-only keeps the original checkout and sessions. Private retention refs may remain after an interrupted or failed preservation; they protect historical work from garbage collection and are not automatically pruned.
 

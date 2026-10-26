@@ -118,7 +118,7 @@ ts-algebra@2.0.0 | MIT | git+https://github.com/ThomasAribart/ts-algebra.git
 tslib@2.8.1 | 0BSD | https://github.com/Microsoft/tslib.git
 typebox@1.3.27 | MIT | https://github.com/sinclairzx81/typebox
 undici-types@8.9.0 | MIT | git+https://github.com/nodejs/undici.git
-undici@8.10.2 | MIT | git+https://github.com/nodejs/undici.git
+undici@8.12.3 | MIT | git+https://github.com/nodejs/undici.git
 web-streams-polyfill@3.3.3 | MIT | git+https://github.com/MattiasBuelens/web-streams-polyfill.git
 which@2.0.2 | ISC | git://github.com/isaacs/node-which.git
 ws@8.22.0 | MIT | git+https://github.com/websockets/ws.git
