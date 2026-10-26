@@ -493,7 +493,9 @@ func restoreInstructions(c BundleCoverage) string {
 	}
 	tips := strings.Join(slices.Compact(slices.Sorted(slices.Values(oids))), " ")
 	if c.ThinBundle != "" {
-		return fmt.Sprintf("git clone --mirror %s restore.git && git -C restore.git bundle unbundle %s && git -C restore.git cat-file -e %s", shellQuote(c.Remote), shellQuote(c.ThinBundle), tips)
+		// rev-list --objects walks every tip's full history, so it fails on
+		// any missing object, not just a missing tip.
+		return fmt.Sprintf("git clone --mirror %s restore.git && git -C restore.git bundle unbundle %s && git -C restore.git rev-list --objects %s >/dev/null", shellQuote(c.Remote), shellQuote(c.ThinBundle), tips)
 	}
 	return fmt.Sprintf("git clone %s && git fetch origin %s", shellQuote(c.Remote), tips)
 }

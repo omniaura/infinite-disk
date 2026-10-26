@@ -234,6 +234,13 @@ func TestRecoveryConsolidationCoversLocalOnlyHistory(t *testing.T) {
 		if b.Result != "pruned" || !strings.Contains(b.Restore, "bundle unbundle "+shellQuote(thin.Path)) {
 			t.Fatalf("receipt must restore from the thin bundle: %+v", b)
 		}
+		// Run the receipt's command as written, with several tips.
+		dir := t.TempDir()
+		cmd := exec.Command("sh", "-c", b.Restore)
+		cmd.Dir, cmd.Env = dir, gitEnvironment()
+		if out, err := cmd.CombinedOutput(); err != nil || len(b.Tips) < 2 {
+			t.Fatalf("restore command failed (tips=%d): %v\n%s", len(b.Tips), err, out)
+		}
 	}
 	for _, p := range []string{first, second} {
 		if _, err := os.Stat(p); !os.IsNotExist(err) {
