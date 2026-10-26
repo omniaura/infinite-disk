@@ -119,6 +119,17 @@ infinite-disk recovery verify
 infinite-disk recovery prune --report REPORT_ID --approve-report REPORT_ID
 ```
 
+Recovery data on one disk is not a backup. `recovery offload` backs up the thin
+bundles, session backups and prune receipts to a Ditto archive capsule through
+the [heyditto CLI](https://github.com/ditto-assistant/ditto-cli). It is billed
+as storage, uses your own `heyditto login`, keeps every local copy, and
+re-uploads only changed chunks:
+
+```sh
+infinite-disk recovery offload            # capsule "infinite-disk-recovery"
+heyditto teleport archive-restore infinite-disk-recovery ./restored --name infinite-disk-recovery
+```
+
 A bundle holds exactly the objects reachable from its refs, so it is covered
 when every bundle tip exists on the receipt's remote and is reachable from a ref
 the remote keeps: the default branch, tags, GitHub pull-request heads, or

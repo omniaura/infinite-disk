@@ -77,7 +77,27 @@ func recoveryCommand(load func() (*disk.Engine, error), asJSON *bool) *cobra.Com
 		}
 		return nil
 	}}
-	root.AddCommand(verify, prune, consolidate)
+	var capsule, heyditto string
+	offload := &cobra.Command{Use: "offload", Short: "Back up retained recovery data to Ditto with heyditto teleport archive; keep local copies", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		e, err := load()
+		if err != nil {
+			return err
+		}
+		res, err := e.OffloadRecovery(cmd.Context(), heyditto, capsule)
+		if err != nil {
+			return err
+		}
+		if *asJSON {
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(res)
+		}
+		w := cmd.OutOrStdout()
+		fmt.Fprintf(w, "Backed up %d recovery source(s) to Ditto archive capsule %q; local copies kept.\n", len(res.Sources), res.Capsule)
+		fmt.Fprintf(w, "Restore: heyditto teleport archive-restore <source> <dest> --name %s\n", res.Capsule)
+		return nil
+	}}
+	offload.Flags().StringVar(&capsule, "capsule", "infinite-disk-recovery", "Ditto archive capsule name")
+	offload.Flags().StringVar(&heyditto, "heyditto", "heyditto", "heyditto CLI executable")
+	root.AddCommand(verify, prune, consolidate, offload)
 	return root
 }
 

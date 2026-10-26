@@ -8,6 +8,8 @@
   first.
 - `recovery consolidate` folds unproven bundles into one restore-tested thin
   bundle per remote; coverage then treats the originals as covered.
+- `recovery offload` backs up retained recovery data to a Ditto archive capsule
+  via `heyditto teleport archive`, keeping local copies.
 - Checkpointed 100-project scan batches, explicit bounded multi-batch runs, and
   streaming JSON Lines for rolling scan/triage/review workflows.
 - Reuse discovery indexes for 15 minutes with explicit partial-coverage warnings
