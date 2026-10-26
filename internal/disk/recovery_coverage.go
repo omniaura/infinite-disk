@@ -53,6 +53,9 @@ type BundleCoverage struct {
 	Status    string      `json:"status"`
 	Reason    string      `json:"reason,omitempty"`
 	CoveredBy []string    `json:"covered_by,omitempty"`
+	// ThinBundle is the restore-tested consolidated bundle that holds this
+	// bundle's local-only objects, when the remote alone does not.
+	ThinBundle string `json:"thin_bundle,omitempty"`
 }
 
 type CoverageReport struct {
@@ -172,7 +175,7 @@ func (e *Engine) PruneCoveredBundles(ctx context.Context, reportID, approvedID s
 			p.Result, p.Reason = "kept", "bundle changed since the approved report"
 		default:
 			fresh := e.coverBundle(ctx, b, mirrors)
-			if fresh.Status != CoverageCovered || fresh.Remote != planned.Remote || !slices.Equal(fresh.Tips, planned.Tips) {
+			if fresh.Status != CoverageCovered || fresh.Remote != planned.Remote || !slices.Equal(fresh.Tips, planned.Tips) || fresh.ThinBundle != planned.ThinBundle {
 				p.Result, p.Reason = "kept", "coverage no longer proven: "+fresh.Reason
 			} else {
 				p.Result, p.Restore = "pending", restoreInstructions(fresh)
@@ -349,7 +352,7 @@ func (e *Engine) coverBundle(ctx context.Context, b recoveryBundle, mirrors map[
 		return c
 	}
 	if thin, ok := e.consolidatedCoverage(ctx, b, m); ok {
-		c.Status, c.CoveredBy = CoverageCovered, append(m.durableRefNames(), "restore-tested thin bundle "+thin)
+		c.Status, c.CoveredBy, c.ThinBundle = CoverageCovered, append(m.durableRefNames(), "restore-tested thin bundle "+thin), thin
 		return c
 	}
 	if len(missing) > 0 {
@@ -480,12 +483,19 @@ func bundleTips(ctx context.Context, dir, bundle string) ([]BundleTip, error) {
 	return tips, nil
 }
 
+// restoreInstructions rebuilds a pruned bundle's history from the remote, plus
+// its thin bundle when local-only objects live there. Unbundling the thin
+// bundle needs the remote's durable objects, so clone first.
 func restoreInstructions(c BundleCoverage) string {
 	oids := make([]string, 0, len(c.Tips))
 	for _, t := range c.Tips {
 		oids = append(oids, t.OID)
 	}
-	return fmt.Sprintf("git clone %s && git fetch origin %s", c.Remote, strings.Join(slices.Compact(slices.Sorted(slices.Values(oids))), " "))
+	tips := strings.Join(slices.Compact(slices.Sorted(slices.Values(oids))), " ")
+	if c.ThinBundle != "" {
+		return fmt.Sprintf("git clone --mirror %s restore.git && git -C restore.git bundle unbundle %s && git -C restore.git cat-file -e %s", c.Remote, c.ThinBundle, tips)
+	}
+	return fmt.Sprintf("git clone %s && git fetch origin %s", c.Remote, tips)
 }
 
 // mirrorGit runs Git against a mirror with lazy fetching disabled, so a

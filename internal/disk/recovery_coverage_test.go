@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -224,8 +225,14 @@ func TestRecoveryConsolidationCoversLocalOnlyHistory(t *testing.T) {
 			runGit(t, restore, "cat-file", "-e", tip.OID)
 		}
 	}
-	if _, err := f.e.PruneCoveredBundles(context.Background(), after.ID, after.ID); err != nil {
+	pruned, err := f.e.PruneCoveredBundles(context.Background(), after.ID, after.ID)
+	if err != nil {
 		t.Fatal(err)
+	}
+	for _, b := range pruned.Bundles {
+		if b.Result != "pruned" || !strings.Contains(b.Restore, "bundle unbundle "+thin.Path) {
+			t.Fatalf("receipt must restore from the thin bundle: %+v", b)
+		}
 	}
 	for _, p := range []string{first, second} {
 		if _, err := os.Stat(p); !os.IsNotExist(err) {
@@ -234,6 +241,23 @@ func TestRecoveryConsolidationCoversLocalOnlyHistory(t *testing.T) {
 	}
 	if _, err := os.Stat(thin.Path); err != nil {
 		t.Fatalf("thin bundle must survive prune: %v", err)
+	}
+}
+
+func TestRecoveryConsolidationClearsInterruptedWorkspace(t *testing.T) {
+	f := newCoverageFixture(t)
+	runGit(t, f.work, "checkout", "-q", "-b", "local")
+	write(t, filepath.Join(f.work, "l.txt"), "l")
+	runGit(t, f.work, "add", ".")
+	runGit(t, f.work, "commit", "-m", "l")
+	f.bundle(t, "src", "local")
+	stale := filepath.Join(f.state, "cache", consolidateWorkDir, digestString(f.remote)[:16]+"-interrupted")
+	write(t, filepath.Join(stale, "store.git", "junk"), "left by a killed run")
+	if _, err := f.e.ConsolidateRecovery(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Fatalf("interrupted workspace not removed: %v", err)
 	}
 }
 

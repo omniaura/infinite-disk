@@ -111,6 +111,15 @@ func (e *Engine) consolidateRemote(ctx context.Context, remote string, sources [
 	if err := os.MkdirAll(workRoot, 0700); err != nil {
 		return cb, err
 	}
+	// The operation lock is held, so any workspace for this remote is left
+	// over from an interrupted run; remove it before starting another.
+	if stale, err := os.ReadDir(workRoot); err == nil {
+		for _, entry := range stale {
+			if strings.HasPrefix(entry.Name(), key+"-") {
+				_ = os.RemoveAll(filepath.Join(workRoot, entry.Name()))
+			}
+		}
+	}
 	work, err := os.MkdirTemp(workRoot, key+"-")
 	if err != nil {
 		return cb, err
@@ -327,8 +336,17 @@ func readBundleHeader(path string) (bundleHeader, error) {
 // manifest lists b's exact digest, the thin bundle is unchanged, and every
 // prerequisite is still reachable from the remote's durable refs.
 func (e *Engine) consolidatedCoverage(ctx context.Context, b recoveryBundle, m *remoteMirror) (string, bool) {
-	manifests, _ := filepath.Glob(filepath.Join(e.Config.StateDir, consolidatedDir, digestString(b.remote)[:16], "*.json"))
-	for _, path := range manifests {
+	// ReadDir, not Glob: a state directory may contain glob metacharacters.
+	dir := filepath.Join(e.Config.StateDir, consolidatedDir, digestString(b.remote)[:16])
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", false
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
 		data, err := os.ReadFile(path)
 		if err != nil {
 			continue
