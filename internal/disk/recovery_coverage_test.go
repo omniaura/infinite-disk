@@ -126,7 +126,7 @@ func TestRecoveryPruneRequiresApprovalAndReproof(t *testing.T) {
 	if _, err := f.e.PruneCoveredBundles(context.Background(), r.ID, ""); err == nil {
 		t.Fatal("prune without approval must fail")
 	}
-	if _, err := f.e.PruneCoveredBundles(context.Background(), r.ID, r.ID[:63]+"0"); err == nil {
+	if _, err := f.e.PruneCoveredBundles(context.Background(), r.ID, r.ID+"0"); err == nil {
 		t.Fatal("prune with mismatched approval must fail")
 	}
 	// Rewriting a bundle after the report must keep it.
