@@ -40,4 +40,15 @@ func TestRecoveryOffloadHandsRetainedDataToHeyditto(t *testing.T) {
 	if _, err := f.e.OffloadRecovery(context.Background(), filepath.Join(bin, "missing-heyditto"), "x"); err == nil || !strings.Contains(err.Error(), "heyditto CLI not found") {
 		t.Fatalf("missing CLI: %v", err)
 	}
+	// Two runs in the same second keep separate reports.
+	if _, err := f.e.OffloadRecovery(context.Background(), filepath.Join(bin, "heyditto"), "my-recovery"); err != nil {
+		t.Fatal(err)
+	}
+	reports, _ := filepath.Glob(filepath.Join(f.state, coverageDir, "offload-*.json"))
+	if len(reports) != 2 {
+		t.Fatalf("each run must keep its report: %v", reports)
+	}
+	if hint := RestoreHint("my recovery"); !strings.HasSuffix(hint, "--name 'my recovery'") {
+		t.Fatalf("restore hint must shell-quote the capsule: %s", hint)
+	}
 }

@@ -31,6 +31,11 @@ type OffloadResult struct {
 	At      time.Time       `json:"at"`
 }
 
+// RestoreHint is the shell command that restores one archived source.
+func RestoreHint(capsule string) string {
+	return "heyditto teleport archive-restore <source> <dest> --name " + shellQuote(capsule)
+}
+
 // RecoveryOffloadSources lists the retained recovery directories that exist.
 func (e *Engine) RecoveryOffloadSources() []OffloadSource {
 	var out []OffloadSource
@@ -62,7 +67,7 @@ func (e *Engine) OffloadRecovery(ctx context.Context, heyditto, capsule string) 
 	}
 	bin, err := exec.LookPath(heyditto)
 	if err != nil {
-		return res, errors.New("heyditto CLI not found; install it with `npm i -g @heyditto/cli` and run `heyditto login`")
+		return res, fmt.Errorf("heyditto CLI not found (%w); install it with `npm i -g @heyditto/cli` and run `heyditto login`", err)
 	}
 	args := []string{"teleport", "archive", "--name", capsule, "--json"}
 	for _, s := range res.Sources {
@@ -84,5 +89,6 @@ func (e *Engine) OffloadRecovery(ctx context.Context, heyditto, capsule string) 
 	if err != nil {
 		return res, err
 	}
-	return res, atomicPrivate(filepath.Join(e.Config.StateDir, coverageDir, "offload-"+res.At.Format("20060102T150405Z")+".json"), append(b, '\n'))
+	// Nanosecond names keep every run's report; the lock serializes runs.
+	return res, atomicPrivate(filepath.Join(e.Config.StateDir, coverageDir, "offload-"+res.At.Format("20060102T150405.000000000Z")+".json"), append(b, '\n'))
 }

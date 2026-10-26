@@ -92,7 +92,7 @@ func recoveryCommand(load func() (*disk.Engine, error), asJSON *bool) *cobra.Com
 		}
 		w := cmd.OutOrStdout()
 		fmt.Fprintf(w, "Backed up %d recovery source(s) to Ditto archive capsule %q; local copies kept.\n", len(res.Sources), res.Capsule)
-		fmt.Fprintf(w, "Restore: heyditto teleport archive-restore <source> <dest> --name %s\n", res.Capsule)
+		fmt.Fprintf(w, "Restore: %s\n", disk.RestoreHint(res.Capsule))
 		return nil
 	}}
 	offload.Flags().StringVar(&capsule, "capsule", "infinite-disk-recovery", "Ditto archive capsule name")
