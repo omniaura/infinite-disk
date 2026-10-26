@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -230,7 +231,7 @@ func TestRecoveryConsolidationCoversLocalOnlyHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, b := range pruned.Bundles {
-		if b.Result != "pruned" || !strings.Contains(b.Restore, "bundle unbundle "+thin.Path) {
+		if b.Result != "pruned" || !strings.Contains(b.Restore, "bundle unbundle "+shellQuote(thin.Path)) {
 			t.Fatalf("receipt must restore from the thin bundle: %+v", b)
 		}
 	}
@@ -241,6 +242,15 @@ func TestRecoveryConsolidationCoversLocalOnlyHistory(t *testing.T) {
 	}
 	if _, err := os.Stat(thin.Path); err != nil {
 		t.Fatalf("thin bundle must survive prune: %v", err)
+	}
+}
+
+func TestShellQuoteRoundTripsThroughSh(t *testing.T) {
+	for _, in := range []string{"/plain/path", "/with space/x.bundle", "/it's/quoted", "$HOME `x`"} {
+		out, err := exec.Command("sh", "-c", "printf %s "+shellQuote(in)).Output()
+		if err != nil || string(out) != in {
+			t.Fatalf("shellQuote(%q) through sh = %q, %v", in, out, err)
+		}
 	}
 }
 

@@ -493,9 +493,9 @@ func restoreInstructions(c BundleCoverage) string {
 	}
 	tips := strings.Join(slices.Compact(slices.Sorted(slices.Values(oids))), " ")
 	if c.ThinBundle != "" {
-		return fmt.Sprintf("git clone --mirror %s restore.git && git -C restore.git bundle unbundle %s && git -C restore.git cat-file -e %s", c.Remote, c.ThinBundle, tips)
+		return fmt.Sprintf("git clone --mirror %s restore.git && git -C restore.git bundle unbundle %s && git -C restore.git cat-file -e %s", shellQuote(c.Remote), shellQuote(c.ThinBundle), tips)
 	}
-	return fmt.Sprintf("git clone %s && git fetch origin %s", c.Remote, tips)
+	return fmt.Sprintf("git clone %s && git fetch origin %s", shellQuote(c.Remote), tips)
 }
 
 // mirrorGit runs Git against a mirror with lazy fetching disabled, so a
