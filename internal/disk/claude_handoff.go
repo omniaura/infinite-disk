@@ -143,6 +143,12 @@ func readClaudeMetadataContext(ctx context.Context, file, id string, association
 }
 
 func claudeFiles(s Session) ([]SessionFile, error) {
+	return claudeFilesWithDigest(s, digestFile)
+}
+
+// A report may reuse a digest only through its invocation-local validated
+// reader. Mutation, backup and handoff verification always call claudeFiles.
+func claudeFilesWithDigest(s Session, digest func(string) (string, error)) ([]SessionFile, error) {
 	if !sessionID.MatchString(s.ID) || filepath.Base(s.Store) != s.ID+".jsonl" || filepath.Base(filepath.Dir(filepath.Dir(s.Store))) != "projects" {
 		return nil, errors.New("Claude session store is not a supported native layout")
 	}
@@ -180,7 +186,12 @@ func claudeFiles(s Session) ([]SessionFile, error) {
 			if total > 512<<20 || len(files) >= 5000 {
 				return errors.New("Claude session backup budget exceeded")
 			}
-			sha, err := digestFile(path)
+			var sha string
+			if info.Size() < minimumReportDigestBytes {
+				sha, err = digestFile(path)
+			} else {
+				sha, err = digest(path)
+			}
 			if err != nil {
 				return err
 			}
@@ -294,6 +305,10 @@ func (e *Engine) claudeDestination(ctx context.Context, c Candidate) (string, st
 }
 
 func (e *Engine) prepareClaudeHandoffs(ctx context.Context, c *Candidate, activity Activity) {
+	e.prepareClaudeHandoffsWithDigest(ctx, c, activity, digestFile)
+}
+
+func (e *Engine) prepareClaudeHandoffsWithDigest(ctx context.Context, c *Candidate, activity Activity, digest func(string) (string, error)) {
 	if c.SessionCount == 0 || c.SessionCount != len(c.Sessions) || !activity.Known {
 		return
 	}
@@ -347,7 +362,7 @@ func (e *Engine) prepareClaudeHandoffs(ctx context.Context, c *Candidate, activi
 		if err != nil || m.CWD != s.Checkout || !sessionPath(s.Checkout) {
 			return
 		}
-		files, err := claudeFiles(s)
+		files, err := claudeFilesWithDigest(s, digest)
 		if err != nil {
 			return
 		}

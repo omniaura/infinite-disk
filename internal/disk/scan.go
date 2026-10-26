@@ -383,6 +383,7 @@ func (e *Engine) Scan(ctx context.Context) (Plan, error) {
 	e.progress("Checking running processes and coding-session links", 0, 0)
 	activity := e.Activity(ctx)
 	sessions := e.SessionInventory(ctx)
+	reportDigests := newReportDigests(ctx)
 	p.SessionWarnings = sessions.Warnings
 	home, _ := os.UserHomeDir()
 	p.Locations, _ = Locations(e.Config, home, false)
@@ -435,7 +436,7 @@ func (e *Engine) Scan(ctx context.Context) (Plan, error) {
 		projectCtx, stopProject := context.WithTimeout(ctx, 15*time.Second)
 		candidate := e.inspectSource(projectCtx, path, activity)
 		attachSessionsContext(projectCtx, &candidate, sessions)
-		e.prepareClaudeHandoffs(projectCtx, &candidate, activity)
+		e.prepareClaudeHandoffsWithDigest(projectCtx, &candidate, activity, reportDigests.sum)
 		candidate.Analysis = e.analyzeCandidate(projectCtx, candidate)
 		if projectCtx.Err() != nil {
 			block(&candidate, "project_inspection_incomplete")
