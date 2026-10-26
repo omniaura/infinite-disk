@@ -128,6 +128,22 @@ blob/tree refs, or branch-only coverage are retained with a reason. Verification
 keeps one treeless mirror per remote under `cache/remote-mirrors/` and never
 pushes.
 
+Bundles of the same repository overlap almost entirely. `recovery consolidate`
+folds every bundle coverage could not prove into one thin bundle per remote,
+holding only objects the remote's durable refs lack, and writes it under
+`recovery-consolidated/` only after a restore test proves the remote's durable
+objects plus the thin bundle reproduce every original tip with no missing
+object. `recovery verify` then counts those originals as covered (while the thin
+bundle is unchanged and its prerequisites stay durable), so prune can remove
+them. On one machine this turned 194 bundles (20.7 GiB) into 18 thin bundles
+(101 MiB).
+
+```sh
+infinite-disk recovery consolidate   # deletes nothing
+infinite-disk recovery verify
+infinite-disk recovery prune --report REPORT_ID --approve-report REPORT_ID
+```
+
 ### Rolling scan, triage, review, repeat
 
 ```sh
