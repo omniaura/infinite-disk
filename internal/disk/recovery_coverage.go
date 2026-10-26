@@ -249,7 +249,7 @@ func (e *Engine) discoverRecoveryBundles() ([]recoveryBundle, error) {
 			return nil
 		}
 		if d.IsDir() {
-			if path != root && (d.Name() == "cache" || d.Name() == mirrorDir || d.Name() == coverageDir) && filepath.Dir(path) == root {
+			if path != root && (d.Name() == "cache" || d.Name() == mirrorDir || d.Name() == coverageDir || d.Name() == consolidatedDir) && filepath.Dir(path) == root {
 				return fs.SkipDir
 			}
 			return nil
@@ -337,20 +337,26 @@ func (e *Engine) coverBundle(ctx context.Context, b recoveryBundle, mirrors map[
 		c.Reason = "cannot inspect remote mirror: " + err.Error()
 		return c
 	}
+	var count int
+	if len(missing) == 0 {
+		if count, err = m.unreachableFromDurable(ctx, tips); err != nil {
+			c.Reason = "cannot prove reachability: " + err.Error()
+			return c
+		}
+	}
+	if len(missing) == 0 && count == 0 {
+		c.Status, c.CoveredBy = CoverageCovered, m.durableRefNames()
+		return c
+	}
+	if thin, ok := e.consolidatedCoverage(ctx, b, m); ok {
+		c.Status, c.CoveredBy = CoverageCovered, append(m.durableRefNames(), "restore-tested thin bundle "+thin)
+		return c
+	}
 	if len(missing) > 0 {
 		c.Reason = fmt.Sprintf("%d bundle tip(s) not on the remote (local-only commits or private objects)", len(missing))
-		return c
-	}
-	count, err := m.unreachableFromDurable(ctx, tips)
-	if err != nil {
-		c.Reason = "cannot prove reachability: " + err.Error()
-		return c
-	}
-	if count > 0 {
+	} else {
 		c.Reason = fmt.Sprintf("%d commit(s) are only on deletable remote branches", count)
-		return c
 	}
-	c.Status, c.CoveredBy = CoverageCovered, m.durableRefNames()
 	return c
 }
 

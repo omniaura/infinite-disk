@@ -172,3 +172,90 @@ func TestRecoveryCoverageRejectsDeletedDefaultBranchHistory(t *testing.T) {
 		t.Fatalf("history from a deleted branch must be retained: %+v", got)
 	}
 }
+
+func TestRecoveryConsolidationCoversLocalOnlyHistory(t *testing.T) {
+	f := newCoverageFixture(t)
+	runGit(t, f.work, "checkout", "-q", "-b", "local")
+	write(t, filepath.Join(f.work, "l1.txt"), "l1")
+	runGit(t, f.work, "add", ".")
+	runGit(t, f.work, "commit", "-m", "l1")
+	first := f.bundle(t, "first", "main", "local")
+	write(t, filepath.Join(f.work, "l2.txt"), "l2")
+	runGit(t, f.work, "add", ".")
+	runGit(t, f.work, "commit", "-m", "l2")
+	// A dangling blob pinned by ref, as complete-history bundles do.
+	dangling := filepath.Join(t.TempDir(), "dangling")
+	write(t, dangling, "never committed")
+	blob := runGit(t, f.work, "hash-object", "-w", dangling)
+	runGit(t, f.work, "update-ref", "refs/infinite-disk/recovery/objects/"+blob, blob)
+	second := f.bundle(t, "second", "main", "local", "refs/infinite-disk/recovery/objects/"+blob)
+
+	before, err := f.e.VerifyRecoveryCoverage(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if statusOf(t, before, first).Status != CoverageRetained || statusOf(t, before, second).Status != CoverageRetained {
+		t.Fatal("local-only bundles must start retained")
+	}
+	res, err := f.e.ConsolidateRecovery(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Bundles) != 1 || len(res.Bundles[0].Sources) != 2 || !res.Bundles[0].RestoreTested {
+		t.Fatalf("consolidation: %+v", res)
+	}
+	thin := res.Bundles[0]
+	after, err := f.e.VerifyRecoveryCoverage(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{first, second} {
+		if got := statusOf(t, after, p); got.Status != CoverageCovered {
+			t.Fatalf("thin bundle must cover %s: %+v", p, got)
+		}
+	}
+	// Independent restore: a fresh clone of the remote plus the thin bundle
+	// yields every original tip, including the pinned blob.
+	restore := filepath.Join(t.TempDir(), "restore")
+	runGit(t, filepath.Dir(restore), "clone", "-q", "--bare", f.remote, restore)
+	runGit(t, restore, "bundle", "unbundle", thin.Path)
+	for _, s := range thin.Sources {
+		for _, tip := range s.Tips {
+			runGit(t, restore, "cat-file", "-e", tip.OID)
+		}
+	}
+	if _, err := f.e.PruneCoveredBundles(context.Background(), after.ID, after.ID); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{first, second} {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Fatalf("original %s not pruned: %v", p, err)
+		}
+	}
+	if _, err := os.Stat(thin.Path); err != nil {
+		t.Fatalf("thin bundle must survive prune: %v", err)
+	}
+}
+
+func TestRecoveryConsolidationIgnoresTamperedThinBundle(t *testing.T) {
+	f := newCoverageFixture(t)
+	runGit(t, f.work, "checkout", "-q", "-b", "local")
+	write(t, filepath.Join(f.work, "l.txt"), "l")
+	runGit(t, f.work, "add", ".")
+	runGit(t, f.work, "commit", "-m", "l")
+	src := f.bundle(t, "src", "local")
+	res, err := f.e.ConsolidateRecovery(context.Background())
+	if err != nil || len(res.Bundles) != 1 {
+		t.Fatalf("consolidate: %+v %v", res, err)
+	}
+	if err := os.WriteFile(res.Bundles[0].Path, []byte("# v2 git bundle\n\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	r, err := f.e.VerifyRecoveryCoverage(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := statusOf(t, r, src); got.Status != CoverageRetained {
+		t.Fatalf("a changed thin bundle must not cover anything: %+v", got)
+	}
+}
