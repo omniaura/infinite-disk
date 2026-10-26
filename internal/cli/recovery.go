@@ -52,7 +52,32 @@ func recoveryCommand(load func() (*disk.Engine, error), asJSON *bool) *cobra.Com
 	prune.Flags().StringVar(&approval, "approve-report", "", "Repeat the exact coverage report ID to approve deletion")
 	_ = prune.MarkFlagRequired("report")
 	_ = prune.MarkFlagRequired("approve-report")
-	root.AddCommand(verify, prune)
+	consolidate := &cobra.Command{Use: "consolidate", Short: "Fold unproven bundles into one restore-tested thin bundle per remote; delete nothing", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		e, err := load()
+		if err != nil {
+			return err
+		}
+		res, err := e.ConsolidateRecovery(cmd.Context())
+		if err != nil {
+			return err
+		}
+		if *asJSON {
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(res)
+		}
+		w := cmd.OutOrStdout()
+		fmt.Fprintln(styled(w, toneHeading), "\nRECOVERY CONSOLIDATION  |  Nothing deleted")
+		for _, b := range res.Bundles {
+			wrapped(w, "  ", fmt.Sprintf("%s: %d bundle(s), %s -> %s thin bundle (restore-tested)", b.Remote, len(b.Sources), size(b.SourceBytes), size(b.Bytes)))
+		}
+		if len(res.Skipped) > 0 {
+			fmt.Fprintf(w, "  %d bundle(s) skipped; see --json for reasons.\n", len(res.Skipped))
+		}
+		if len(res.Bundles) > 0 {
+			fmt.Fprintln(w, "  Next: infinite-disk recovery verify, then prune the originals it reports covered.")
+		}
+		return nil
+	}}
+	root.AddCommand(verify, prune, consolidate)
 	return root
 }
 
